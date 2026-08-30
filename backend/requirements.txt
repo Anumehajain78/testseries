@@ -1,6 +1,16 @@
-# Phase 2 — contract only. Database, auth and realtime dependencies arrive with
-# the steps that need them (step 03 adds sqlalchemy/alembic/psycopg, step 07
-# adds redis).
+# Web framework and contract
 fastapi>=0.141,<1.0
 pydantic[email]>=2.13,<3.0
+pydantic-settings>=2.6
 uvicorn[standard]>=0.34
+
+# Persistence
+sqlalchemy>=2.0,<3.0
+alembic>=1.19
+psycopg[binary]>=3.2
+
+# Auth
+argon2-cffi>=23.0
+pyjwt>=2.9
+
+# Realtime dependencies (redis) arrive with the step that needs them.

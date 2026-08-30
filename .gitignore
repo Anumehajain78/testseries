@@ -13,8 +13,9 @@ coverage/
 *.tsbuildinfo
 next-env.d.ts
 
-# env files
+# env files — the example is committed, real ones never are
 .env*
+!.env.example
 
 # editor / tooling
 .claude/

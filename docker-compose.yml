@@ -1,0 +1,40 @@
+# Local development infrastructure.
+#
+# Only Postgres for now. Redis arrives with the realtime step, when there is
+# something to fan out; adding it early would be a service nobody starts for a
+# reason nobody remembers.
+#
+#   docker compose up -d
+#   docker compose logs -f postgres
+#   docker compose down          # keeps data
+#   docker compose down -v       # drops the volume too
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: exam-control-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: exam
+      POSTGRES_PASSWORD: exam_local_dev
+      POSTGRES_DB: exam_control
+      # Deterministic collation, so ORDER BY on candidate names does not depend
+      # on the host's locale.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      # 5433 on the host: a college machine may already run Postgres on 5432,
+      # and a dev database quietly binding the default port is a bad surprise.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Alembic and the API both wait on this, so migrations never race startup.
+      test: ["CMD-SHELL", "pg_isready -U exam -d exam_control"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    name: exam_control_postgres_data
