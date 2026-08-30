@@ -3054,6 +3054,12 @@
         "title": "WarningFrame",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
@@ -3181,6 +3187,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Audit Events",
         "tags": [
           "audit"
@@ -3342,6 +3353,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Me",
         "tags": [
           "auth"
@@ -3530,6 +3546,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Exams",
         "tags": [
           "exams"
@@ -3614,6 +3635,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Exam",
         "tags": [
           "exams"
@@ -3838,6 +3864,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Exam Monitor",
         "tags": [
           "exams"
@@ -3882,6 +3913,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Exam Results",
         "tags": [
           "exams"
@@ -4038,6 +4074,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Exam Sessions",
         "tags": [
           "exams"
@@ -4127,6 +4168,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Labs",
         "tags": [
           "directory"
@@ -4175,6 +4221,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Lab Computers",
         "tags": [
           "directory"
@@ -4755,6 +4806,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List Students",
         "tags": [
           "directory"

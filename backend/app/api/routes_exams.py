@@ -7,9 +7,11 @@ is built from. Handler bodies are replaced in step 03; these signatures are not.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app import examples
+from app.api.deps import DbSession, Staff
+from app.services import queries
 from app.schemas.common import ErrorDetail, Page
 from app.schemas.enums import ExamStatus
 from app.schemas.exam import (
@@ -36,13 +38,15 @@ ILLEGAL_TRANSITION = {
 
 @router.get("", response_model=Page[ExamSummary], operation_id="listExams")
 async def list_exams(
+    db: DbSession,
+    _: Staff,
     status_filter: ExamStatus | None = Query(default=None, alias="status"),
     lab_id: UUID | None = Query(default=None, alias="labId"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> Page[ExamSummary]:
     """Backs the assessments table and the dashboard."""
-    return Page[ExamSummary](items=[examples.EXAM_SUMMARY], total=1, limit=limit, offset=offset)
+    return queries.list_exams(db, status=status_filter, lab_id=lab_id, limit=limit, offset=offset)
 
 
 @router.post("", response_model=ExamDetail, status_code=status.HTTP_201_CREATED, operation_id="createExam")
@@ -52,13 +56,16 @@ async def create_exam(payload: ExamCreate) -> ExamDetail:
 
 
 @router.get("/{exam_id}", response_model=ExamDetail, operation_id="getExam")
-async def get_exam(exam_id: UUID) -> ExamDetail:
+async def get_exam(exam_id: UUID, db: DbSession, _: Staff) -> ExamDetail:
     """Faculty-facing detail, including answer keys.
 
     Never reachable by a STUDENT subject; candidates read their paper through
     ``GET /sessions/{id}`` instead.
     """
-    return examples.EXAM_DETAIL
+    exam = queries.get_exam(db, exam_id)
+    if exam is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment not found")
+    return exam
 
 
 @router.patch("/{exam_id}", response_model=ExamDetail, responses=ILLEGAL_TRANSITION, operation_id="updateExam")
@@ -102,26 +109,32 @@ async def cancel_exam(exam_id: UUID, payload: ExamCancelRequest) -> ExamSummary:
 
 
 @router.get("/{exam_id}/sessions", response_model=list[SessionRow], operation_id="listExamSessions")
-async def list_exam_sessions(exam_id: UUID) -> list[SessionRow]:
+async def list_exam_sessions(exam_id: UUID, db: DbSession, _: Staff) -> list[SessionRow]:
     """The readiness roster before start, and the monitor table during."""
-    return [examples.SESSION_ROW]
+    return queries.list_exam_sessions(db, exam_id)
 
 
 @router.get("/{exam_id}/monitor", response_model=MonitorSnapshot, operation_id="getExamMonitor")
-async def get_exam_monitor(exam_id: UUID) -> MonitorSnapshot:
+async def get_exam_monitor(exam_id: UUID, db: DbSession, _: Staff) -> MonitorSnapshot:
     """Server-computed aggregates plus rows.
 
     Also the documented fallback when the websocket is unavailable: the same
     reducer consumes this and a live frame, so losing the socket degrades the
     refresh rate rather than correctness.
     """
-    return examples.MONITOR_SNAPSHOT
+    snapshot = queries.get_monitor(db, exam_id)
+    if snapshot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment not found")
+    return snapshot
 
 
 @router.get("/{exam_id}/results", response_model=ResultsPage, operation_id="getExamResults")
-async def get_exam_results(exam_id: UUID) -> ResultsPage:
+async def get_exam_results(exam_id: UUID, db: DbSession, _: Staff) -> ResultsPage:
     """Ranked results. Scores are omitted while unpublished."""
-    return examples.RESULTS
+    results = queries.get_results(db, exam_id)
+    if results is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment not found")
+    return results
 
 
 @router.post("/{exam_id}/results/publish", response_model=ResultsPage, operation_id="publishExamResults")

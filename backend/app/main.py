@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes_directory import audit_router, auth_router, directory_router
+from app.core.config import get_settings
 from app.api.routes_exams import router as exams_router
 from app.api.routes_sessions import router as sessions_router
 from app.schemas.realtime import (
@@ -40,11 +41,12 @@ app = FastAPI(
     docs_url=f"{API_PREFIX}/docs",
 )
 
-# The Next.js dev server is a separate origin. Locked to explicit origins from
-# configuration in step 03 - never a wildcard once cookies or tokens are real.
+# The Next.js dev server is a separate origin. Read from settings rather than
+# hardcoded, so deploying to the college LAN is an environment variable - and
+# never a wildcard, because credentials are real.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=get_settings().cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

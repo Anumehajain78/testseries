@@ -6,18 +6,19 @@ a contract. Second, assert the guarantees the design depends on, so a later
 refactor cannot quietly undo them.
 """
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.security import issue_user_tokens
 from app.main import app
+from app.schemas.enums import Role
 
 client = TestClient(app)
 
-EXAM_ID = "11111111-1111-4111-8111-111111111111"
 SESSION_ID = "44444444-4444-4444-8444-444444444444"
 QUESTION_ID = "66666666-6666-4666-8666-666666666666"
-LAB_ID = "22222222-2222-4222-8222-222222222222"
-STUDENT_ID = "33333333-3333-4333-8333-333333333333"
 API = "/api/v1"
 
 
@@ -26,36 +27,83 @@ def schema() -> dict:
     return app.openapi()
 
 
+@pytest.fixture(scope="module")
+def staff_headers() -> dict[str, str]:
+    """A faculty credential.
+
+    Minted directly rather than via /auth/login: these tests are about route
+    shapes and guards, and should not fail because a seed password changed.
+    """
+    access, _, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+    return {"Authorization": f"Bearer {access}"}
+
+
+@pytest.fixture(scope="module")
+def seeded(staff_headers) -> dict[str, str]:
+    """Ids discovered from the running database.
+
+    The read routes are wired to Postgres now, so the tests address real rows
+    instead of hardcoded example ids.
+    """
+    exams = client.get(f"{API}/exams", headers=staff_headers)
+    if exams.status_code != 200 or not exams.json()["items"]:
+        pytest.skip("no seeded database: run `python -m app.db.seed`")
+    labs = client.get(f"{API}/labs", headers=staff_headers).json()
+    return {"exam_id": exams.json()["items"][0]["id"], "lab_id": labs[0]["id"]}
+
+
 class TestRoutesAnswer:
     """FastAPI validates outgoing payloads against each response_model, so a
-    200 here means the example genuinely satisfies the schema."""
+    200 here means the row genuinely satisfies the schema."""
+
+    def test_health_needs_no_credential(self):
+        assert client.get("/health").status_code == 200
 
     @pytest.mark.parametrize(
         "path",
         [
-            "/health",
-            f"{API}/exams",
-            f"{API}/exams/{EXAM_ID}",
-            f"{API}/exams/{EXAM_ID}/sessions",
-            f"{API}/exams/{EXAM_ID}/monitor",
-            f"{API}/exams/{EXAM_ID}/results",
-            f"{API}/sessions/{SESSION_ID}",
-            f"{API}/sessions/{SESSION_ID}/state",
-            f"{API}/sessions/{SESSION_ID}/detail",
-            f"{API}/me/exams",
-            f"{API}/students",
-            f"{API}/labs",
-            f"{API}/labs/{LAB_ID}/computers",
-            f"{API}/audit",
-            f"{API}/auth/me",
+            "/exams",
+            "/students",
+            "/labs",
+            "/audit",
+            "/auth/me",
         ],
     )
-    def test_get_returns_a_valid_payload(self, path: str):
-        response = client.get(path)
+    def test_listing_routes_return_valid_payloads(self, path, staff_headers):
+        response = client.get(f"{API}{path}", headers=staff_headers)
         assert response.status_code == 200, response.text
 
-    def test_start_returns_an_authoritative_window(self):
-        response = client.post(f"{API}/exams/{EXAM_ID}/start", json={})
+    @pytest.mark.parametrize("suffix", ["", "/sessions", "/monitor", "/results"])
+    def test_exam_routes_return_valid_payloads(self, suffix, seeded, staff_headers):
+        response = client.get(f"{API}/exams/{seeded['exam_id']}{suffix}", headers=staff_headers)
+        assert response.status_code == 200, response.text
+
+    def test_lab_computers_return_valid_payloads(self, seeded, staff_headers):
+        response = client.get(f"{API}/labs/{seeded['lab_id']}/computers", headers=staff_headers)
+        assert response.status_code == 200, response.text
+
+    def test_an_unknown_exam_is_a_404_not_a_crash(self, staff_headers):
+        response = client.get(f"{API}/exams/{uuid.uuid4()}", headers=staff_headers)
+        assert response.status_code == 404
+
+    def test_reads_require_a_credential(self):
+        # The whole admin surface is staff-only; an anonymous caller sees
+        # nothing, not an empty list.
+        assert client.get(f"{API}/exams").status_code == 401
+
+    def test_a_garbage_token_is_rejected(self):
+        response = client.get(f"{API}/exams", headers={"Authorization": "Bearer nonsense"})
+        assert response.status_code == 401
+
+    def test_a_candidate_cannot_reach_the_admin_surface(self):
+        # Answer keys live behind these routes, so a STUDENT subject must be
+        # refused even though it is a perfectly valid credential.
+        access, _, _ = issue_user_tokens(uuid.uuid4(), Role.STUDENT)
+        response = client.get(f"{API}/exams", headers={"Authorization": f"Bearer {access}"})
+        assert response.status_code == 403
+
+    def test_start_returns_an_authoritative_window(self, seeded, staff_headers):
+        response = client.post(f"{API}/exams/{seeded['exam_id']}/start", json={}, headers=staff_headers)
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["startsAt"] < body["endsAt"], "the window must move forwards"

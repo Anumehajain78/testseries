@@ -49,7 +49,15 @@ class Settings(BaseSettings):
     heartbeat_warning_seconds: int = Field(default=30, ge=1)
     heartbeat_offline_seconds: int = Field(default=90, ge=1)
 
-    cors_origins: list[str] = Field(default=["http://localhost:3000", "http://localhost:3001"])
+    # Every port the Next.js dev server might claim; production sets this
+    # explicitly to the college's own origin.
+    cors_origins: list[str] = Field(
+        default=[
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:3002",
+        ]
+    )
 
     @field_validator("heartbeat_offline_seconds")
     @classmethod

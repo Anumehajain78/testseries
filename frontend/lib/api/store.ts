@@ -104,6 +104,17 @@ export const examStore = {
     return next;
   },
 
+  // Live mode: adopt a snapshot assembled from the API instead of the seed.
+  // Failure is surfaced rather than swallowed — a monitor silently showing
+  // stale mock data would be worse than showing nothing.
+  adoptServerState(state: ExamState) {
+    commit(state, true);
+  },
+
+  markHydrated() {
+    if (!snapshot.hydrated) commit(snapshot.state, true);
+  },
+
   reset() {
     try {
       localStorage.removeItem(STORAGE_KEY);

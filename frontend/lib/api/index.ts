@@ -4,6 +4,7 @@ import type { ExamApi } from "./types";
 export type { ExamApi, CreateExamResult, SubmitExamResult, SubmitMode } from "./types";
 export { CURRENT_STUDENT_ID } from "./mock";
 export { examStore, type StoreSnapshot } from "./store";
+export { ApiError, loadStateFromServer, readToken, signIn, storeToken } from "./http";
 
 // ---------------------------------------------------------------------------
 // Implementation selection
@@ -19,11 +20,9 @@ export type ApiMode = "mock" | "live";
 export const API_MODE: ApiMode = process.env.NEXT_PUBLIC_API_MODE === "live" ? "live" : "mock";
 
 function resolveApi(): ExamApi {
-  if (API_MODE === "live") {
-    throw new Error(
-      "NEXT_PUBLIC_API_MODE=live, but the HTTP client is not implemented yet (migration step 04). Unset the variable or set it to 'mock'.",
-    );
-  }
+  // Reads come from the server in live mode; writes still run against the mock
+  // store until step 05 implements them. Mixing the two is intentional and
+  // temporary, and is why the flag exists.
   return mockApi;
 }
 

@@ -131,3 +131,4 @@ button { color: inherit; }
 .activity-timeline strong { display: block; color: var(--navy-900); font-size: 12px; }
 .activity-timeline time { color: var(--muted); font-size: 9px; }
 .monitor-stats { grid-template-columns: repeat(5,1fr); }
+.signin-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--navy-950); }.signin-card { width: min(400px,100%); display: flex; flex-direction: column; gap: 14px; padding: 32px; border-radius: 14px; background: #fff; box-shadow: 0 30px 70px rgba(0,0,0,.35); }.signin-card .brand-mark { width: 44px; height: 44px; }.signin-card .brand-mark.warn { color: var(--amber-600); background: var(--amber-100); }.signin-card h1 { margin: 6px 0 0; color: var(--navy-950); font-family: Georgia,serif; font-size: 26px; font-weight: 500; }.signin-card > p { margin: 0 0 6px; color: var(--muted); font-size: 12px; line-height: 1.6; }.signin-card .btn { justify-content: center; margin-top: 6px; }
