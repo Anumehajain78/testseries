@@ -178,17 +178,17 @@ export function CreateTestScreen() {
   };
 
   // Create Test: validate, persist as draft, and navigate to the detail page (Req 4.8).
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!validate()) return;
-    const id = createTest(buildInput());
+    const id = await createTest(buildInput());
     router.push(`/admin/tests/${id}`);
   };
 
   // Save Draft: persist without navigating away (Req 4.9).
-  const saveDraft = () => {
+  const saveDraft = async () => {
     if (!validate()) return;
-    createTest(buildInput());
+    await createTest(buildInput());
     router.push("/admin/tests");
   };
 
@@ -312,7 +312,7 @@ export function TestDetailScreen() {
   const test = state.tests.find((item) => item.id === params.id);
   if (!test) return <EmptyState title="Assessment not found" description="This assessment may have been removed from local demo data." action={<ButtonLink href="/admin/tests">Back to assessments</ButtonLink>}/>;
   const lab = state.labs.find((l) => l.id === test.labId);
-  const launch = () => { startExam(test.id); setConfirm(false); router.push(`/admin/tests/${test.id}/monitor`); };
+  const launch = async () => { await startExam(test.id); setConfirm(false); router.push(`/admin/tests/${test.id}/monitor`); };
   return <><div className="breadcrumb"><Link href="/admin/tests">Assessments</Link><Icon name="chevron" size={14}/><span>{test.code}</span></div><PageHeader title={test.title} description={`${test.course} · ${test.department}`} actions={<>{test.status === "draft" && <Button icon="calendar" onClick={() => scheduleExam(test.id)}>Schedule assessment</Button>}{test.status === "scheduled" && <><Button icon="send" onClick={() => setConfirm(true)}>Start examination</Button><Button tone="secondary" icon="file" title="Editing opens in a later phase">Edit test</Button><ButtonLink href={`/admin/tests/${test.id}/monitor`} tone="ghost" icon="monitor">Monitor exam</ButtonLink></>}{test.status === "live" && <ButtonLink href={`/admin/tests/${test.id}/monitor`} icon="monitor">Open live monitor</ButtonLink>}</>}/><div className="detail-grid"><div className="detail-main"><Card className="detail-hero"><div><Badge tone={examBadgeTone(test.status)}>{statusLabel(test.status)}</Badge><span className="exam-code">{test.code}</span></div><div className="detail-facts"><div><Icon name="calendar"/><span><small>Start time</small><strong>{formatDateTime(test.scheduledAt)}</strong></span></div><div><Icon name="clock"/><span><small>Duration</small><strong>{test.durationMinutes} minutes</strong></span></div><div><Icon name="users"/><span><small>Students</small><strong>{test.assignedStudentIds.length} assigned</strong></span></div><div><Icon name="monitor"/><span><small>Lab</small><strong>{lab?.name ?? "Unassigned"}</strong></span></div><div><Icon name="file"/><span><small>Questions / marks</small><strong>{test.questions.length} / {test.totalMarks}</strong></span></div></div></Card><Card className="table-card"><div className="section-heading"><div><p className="eyebrow">Candidate roster</p><h2>Assigned students</h2></div><Badge tone="info">{roster.length} students</Badge></div>{roster.length ? <TableShell caption="Assigned candidates"><thead><tr><th>Roll number</th><th>Student</th><th>Computer</th><th>Connection</th><th>Exam status</th></tr></thead><tbody>{roster.map((row) => <tr key={row.studentId}><td>{row.registrationNo}</td><td className="table-title">{row.name}</td><td>{row.computerId}</td><td><StatusDot status={row.connection}/></td><td><Badge tone={examStatusTone(row.examStatus)}>{EXAM_STATUS_LABEL[row.examStatus]}</Badge></td></tr>)}</tbody></TableShell> : <EmptyState title="No students assigned" description="Edit the assessment to assign candidates before starting."/>}</Card><Card><div className="section-heading"><div><p className="eyebrow">Paper preview</p><h2>Questions</h2></div><Badge>{test.totalMarks} marks</Badge></div><ol className="preview-list">{test.questions.map((q) => <li key={q.id}><span>{q.prompt}</span><small>{q.marks} marks · {q.options.length} options</small></li>)}</ol></Card></div><aside className="detail-side"><Card><h2>Launch readiness</h2><div className="check-list"><p><Icon name="check"/> Question paper validated</p><p><Icon name="check"/> Candidate roster assigned</p><p><Icon name="check"/> {lab?.available} devices available</p><p className={lab?.status === "maintenance" ? "not-ready" : ""}><Icon name={lab?.status === "maintenance" ? "alert" : "check"}/> Lab environment {lab?.status}</p></div></Card><Card><h2>Instructions</h2><ul className="instruction-list">{test.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}</ul></Card></aside></div><Modal open={confirm} onClose={() => setConfirm(false)} title="Start this examination now?" description="This begins the examination for all connected students, opens the student entry gate, and starts the shared countdown. This action should only be taken when invigilators are ready." actions={<><Button tone="secondary" onClick={() => setConfirm(false)}>Cancel</Button><Button icon="send" onClick={launch}>Confirm & start</Button></>}><div className="launch-summary"><strong>{test.title}</strong><span>{test.assignedStudentIds.length} assigned students · {test.durationMinutes} minutes · {test.questions.length} questions · {lab?.name}</span></div></Modal></>;
 }
 
