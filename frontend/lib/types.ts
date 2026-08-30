@@ -1,5 +1,9 @@
-export type ExamStatus = "draft" | "scheduled" | "live" | "completed";
-export type StudentExamStatus = "not-ready" | "ready" | "in-progress" | "submitted";
+// "cancelled" is a distinct outcome, not a flavour of completed — an exam
+// abandoned by an administrator must never read as one that ran to term.
+export type ExamStatus = "draft" | "scheduled" | "live" | "completed" | "cancelled";
+// "terminated" covers a candidate ejected by an invigilator. Collapsing it
+// into "submitted" would misreport them as having sat the paper.
+export type StudentExamStatus = "not-ready" | "ready" | "in-progress" | "submitted" | "terminated";
 export type ConnectionStatus = "online" | "warning" | "offline";
 export type QuestionType = "mcq" | "multiple" | "text";
 export type AuditSeverity = "info" | "warning" | "critical";

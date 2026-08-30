@@ -14,6 +14,7 @@ export const EXAM_STATUS_LABEL: Record<StudentExamStatus, string> = {
   ready: "Ready",
   "in-progress": "Taking test",
   submitted: "Submitted",
+  terminated: "Terminated",
 };
 
 export function examStatusTone(status: StudentExamStatus): BadgeTone {
@@ -26,6 +27,9 @@ export function examStatusTone(status: StudentExamStatus): BadgeTone {
       return "neutral";
     case "not-ready":
       return "warning";
+    // An ejected candidate is an incident, not a pending one.
+    case "terminated":
+      return "danger";
   }
 }
 
@@ -40,5 +44,7 @@ export function examBadgeTone(status: ExamStatus): BadgeTone {
       return "success";
     case "draft":
       return "neutral";
+    case "cancelled":
+      return "danger";
   }
 }
