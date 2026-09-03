@@ -22,9 +22,11 @@ services:
       # on the host's locale.
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
     ports:
-      # 5433 on the host: a college machine may already run Postgres on 5432,
-      # and a dev database quietly binding the default port is a bad surprise.
-      - "5433:5432"
+      # Not 5432: a machine may already run Postgres there, and a dev database
+      # quietly binding the default port is a bad surprise. Overridable because
+      # 5433 collides too once you have more than one project on the go —
+      # export EXAM_DB_PORT and set EXAM_DATABASE_URL to match.
+      - "${EXAM_DB_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

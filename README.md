@@ -26,6 +26,16 @@ npm run dev
 Sign in with any seeded address — `anita.rao@northbridge.edu` (faculty) or
 `admin@northbridge.edu` — and the password `examcontrol`.
 
+### If port 5433 is taken
+
+Machines running several projects tend to collect Postgres instances. Move ours
+and point the backend at the new port:
+
+```bash
+EXAM_DB_PORT=5435 docker compose up -d
+export EXAM_DATABASE_URL=postgresql+psycopg://exam:exam_local_dev@localhost:5435/exam_control
+```
+
 ### Why the lab looks dead after a minute
 
 Liveness is derived from `last_heartbeat_at`, so seeded workstations correctly
