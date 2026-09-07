@@ -149,6 +149,11 @@ export const writes = {
     post<ResultsPageDto>(`/exams/${examId}/results/publish`, { published }),
 };
 
+/** Forget this browser's credential. The server holds no session to end. */
+export function signOut(): void {
+  storeToken(null);
+}
+
 export async function signIn(email: string, password: string): Promise<TokenPairDto> {
   const response = await fetch(`${BASE_URL}/auth/login`, {
     method: "POST",
@@ -366,7 +371,7 @@ export async function loadStateFromServer(): Promise<Partial<ExamState>> {
     answers: {} as Record<string, Record<string, AnswerValue>>,
     flags: {},
     toasts: [],
-    mockResultMode: resultPages.some((page) => page.published),
+    resultsPublished: resultPages.some((page) => page.published),
   };
 }
 
@@ -481,7 +486,7 @@ function emptyState(): Partial<ExamState> {
     answers: {},
     flags: {},
     toasts: [],
-    mockResultMode: false,
+    resultsPublished: false,
   };
 }
 

@@ -2,18 +2,18 @@
 
 The server-authoritative backend for the examination platform.
 
-**Step 02** established the contract: Pydantic schemas whose OpenAPI document
-generates the frontend's TypeScript client, so the two sides cannot drift.
+It owns the schema, the state machines, authentication, the exam lifecycle,
+each candidate's paper, grading, and the deadline sweep. The frontend is a
+client of it and does not run without one.
 
-**Step 03** added persistence — Postgres, Alembic migrations, password and
-token handling, and the seating and liveness logic. The route handlers still
-return static examples from `app/examples.py`; wiring them to the database is
-step 04, and the shapes they return are already final.
+The contract is generated rather than described: Pydantic models produce
+`openapi.json`, which produces the frontend's TypeScript, so the two sides
+cannot drift.
 
 ## Running it
 
 ```bash
-docker compose up -d                              # Postgres on host port 5433
+docker compose up -d                              # Postgres :5433, Redis :6380
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements-dev.txt
 cp .env.example .env
@@ -60,7 +60,9 @@ way the screens cannot absorb, the client build fails.
 | `app/schemas/` | Pydantic models — the contract itself |
 | `app/domain/transitions.py` | Legal state transitions for exams and sessions |
 | `app/api/` | Route signatures; bodies are placeholders until step 03 |
-| `app/examples.py` | Static payloads. Deleted in step 03. |
+| `app/services/` | Reads, the exam lifecycle, candidate sessions, the sweep |
+| `app/realtime/` | Broker and event frames for live updates |
+| `app/examples.py` | Static payloads, still backing the few unimplemented routes |
 | `app/db/` | SQLAlchemy models, engine, session lifecycle |
 | `app/core/` | Settings, password hashing, token issuance |
 | `app/api/deps.py` | Auth and role guards, expressed as dependencies |
@@ -117,10 +119,16 @@ or a future endpoint forgets:
 
 ## Not in scope yet
 
-Route handlers do not read the database yet — they return examples, and the
-services that will replace them arrive in step 04. There is no WebSocket
-server, no code execution, and no Tauri lab client. The realtime *frames* are
-modelled and exported so the frontend can generate their types, but nothing
-serves them.
+Machine enrolment is still stubbed, so the heartbeat endpoint accepts and
+discards. Until the lab client exists, `scripts/simulate_heartbeats.py` stands
+in for it by writing liveness directly — delete it when the client sends real
+heartbeats.
 
-`app/examples.py` is deleted when the handlers become real.
+Text answers score zero pending human marking rather than being counted wrong,
+and there is no marking interface. That is deliberate: silently marking an
+unread answer incorrect would be worse than leaving it unscored.
+
+No code execution, and no Tauri lab client.
+
+`app/examples.py` survives only for the few routes above that are still
+stubs.

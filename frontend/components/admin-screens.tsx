@@ -495,7 +495,7 @@ const AUDIT_FILTERS: Array<{ value: AuditFilter; label: string }> = [
 ];
 
 export function AuditScreen() {
-  const { state, hydrated, resetDemo } = useExam();
+  const { state, hydrated } = useExam();
   const [filter, setFilter] = useState<AuditFilter>("all");
 
   // Newest-first ordering for the trail, then apply the active filter (Req 11.4).
@@ -506,7 +506,7 @@ export function AuditScreen() {
   if (!hydrated) return <LoadingState/>;
 
   return <>
-    <PageHeader eyebrow="Governance" title="Audit log" description="An immutable-style activity trail for this browser demo session." actions={<Button tone="secondary" icon="reset" onClick={resetDemo}>Reset demo</Button>}/>
+    <PageHeader eyebrow="Governance" title="Audit log" description="The recorded activity trail for this institution. Entries are never edited or removed." actions={<Badge tone="neutral">Append-only</Badge>}/>
     <div className="toolbar"><div className="tabs" role="group" aria-label="Filter audit events">{AUDIT_FILTERS.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label} <span>{filterAuditEvents(ordered, value).length}</span></button>)}</div></div>
     <Card className="table-card">{events.length ? <TableShell caption="Audit events">
       <thead><tr><th>Timestamp</th><th>Student</th><th>Computer</th><th>Event</th><th>Severity</th><th>Details</th></tr></thead>

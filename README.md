@@ -7,7 +7,7 @@ same server-defined moment, and the session is monitored until submission.
 ## Running the stack
 
 ```bash
-docker compose up -d                                   # Postgres on :5433
+docker compose up -d                                   # Postgres :5433, Redis :6380
 
 cd backend
 python3 -m venv .venv
@@ -19,7 +19,7 @@ cp .env.example .env
 
 cd ../frontend
 npm install
-cp .env.example .env.local                             # set NEXT_PUBLIC_API_MODE=live
+cp .env.example .env.local                             # point it at the API
 npm run dev
 ```
 
@@ -39,8 +39,9 @@ export EXAM_DATABASE_URL=postgresql+psycopg://exam:exam_local_dev@localhost:5435
 ### Why the lab looks dead after a minute
 
 Liveness is derived from `last_heartbeat_at`, so seeded workstations correctly
-go offline about ninety seconds after seeding: nothing is reporting yet. Until
-the lab client exists, stand in for it:
+go offline about ninety seconds after seeding: nothing is reporting yet. The
+heartbeat endpoint is still a stub pending machine enrolment, so until the lab
+client exists, stand in for it:
 
 ```bash
 cd backend && ./.venv/bin/python -m scripts.simulate_heartbeats --watch
@@ -56,15 +57,19 @@ cd backend && ./.venv/bin/python -m scripts.simulate_heartbeats --watch
 
 ## Where this is
 
-The frontend workflow is complete against a mock store. The backend owns the
-schema, the state machines, authentication, and every admin **read**. Writes
-still run against the browser mock, which is why `NEXT_PUBLIC_API_MODE` exists:
-`live` reads from Postgres, `mock` runs entirely offline, and flipping it is
-the rollback.
+The migration off the browser mock is complete. The server owns the schema, the
+state machines, authentication, the exam lifecycle, the candidate's paper, and
+grading; the frontend is a client of it and **does not run without it**. There
+is no offline mode, because there is no longer a client-side copy of an
+examination to fall back to.
 
-Still ahead: the write cutover, WebSocket monitoring, the Tauri lab client, and
-sandboxed code execution — in that order, and deliberately not before the exam
-state machine is settled.
+What that bought, concretely: a candidate's browser cannot see an answer key,
+the exam clock is the server's, a repeated Start cannot move a deadline, and
+auto-submission happens whether or not a candidate's machine is still there.
+
+Still ahead: the Tauri lab client (machine enrolment and real heartbeats), the
+invigilation signals it will report, and sandboxed code execution — in that
+order, and deliberately not before the exam state machine settled.
 
 ## Checks
 

@@ -154,7 +154,8 @@ export interface ExamState {
   answers: Record<string, Record<string, AnswerValue>>;
   flags: Record<string, string[]>;
   toasts: Toast[];
-  mockResultMode: boolean;
+  /** Whether the exam cell has released scores to candidates. */
+  resultsPublished: boolean;
 }
 
 export interface NewTestInput {

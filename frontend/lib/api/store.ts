@@ -1,67 +1,54 @@
-import { createSeedState } from "@/lib/mock-data";
 import type { ExamState } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
-// Mock store
+// Snapshot store
 //
-// The demo's state container, lifted out of React so it can be driven by the
-// API client rather than by components. It is an external store in the precise
-// sense React means: `useSyncExternalStore` subscribes to it, which is why the
-// provider no longer calls setState from an effect.
+// A thin external store the screens read synchronously via
+// `useSyncExternalStore`. It holds whatever the API last returned and nothing
+// else: there is no seed, and nothing is written to browser storage.
 //
-// When the HTTP client lands (migration step 04) this file's job shrinks to
-// nothing — the server becomes the store and this is deleted along with
-// `mock-data.ts`.
+// That last point is deliberate. Persisting exam state locally would mean a
+// candidate's machine holding a copy of a paper, and a stale copy at that —
+// the server is the only place exam state lives, and a reload re-reads it.
 // ---------------------------------------------------------------------------
-
-const STORAGE_KEY = "northbridge-exam-control-v2";
 
 export interface StoreSnapshot {
   state: ExamState;
-  /** False until the browser's persisted state has been adopted. Components
-   *  render a loading state meanwhile, which is what keeps the server and
-   *  client markup identical on first paint. */
+  /** False until the first server snapshot has been adopted. */
   hydrated: boolean;
 }
 
 type Listener = () => void;
 
-function readPersisted(raw: string | null): ExamState | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as ExamState;
-    return parsed.version === 2 && Array.isArray(parsed.tests) ? parsed : null;
-  } catch {
-    return null;
-  }
+/** Nothing is known until the server says otherwise. */
+export function emptyExamState(): ExamState {
+  return {
+    version: 2,
+    tests: [],
+    students: [],
+    labs: [],
+    computers: [],
+    sessions: [],
+    results: [],
+    audits: [],
+    submissions: [],
+    answers: {},
+    flags: {},
+    toasts: [],
+    resultsPublished: false,
+  };
 }
 
-// Seeded once per process, mirroring the previous `useState(createSeedState)`.
-// Held as a stable reference because getServerSnapshot must never return a new
-// object — React re-renders forever if it does.
-const seedSnapshot: StoreSnapshot = { state: createSeedState(), hydrated: false };
+// Held as a stable reference: getServerSnapshot must never return a new object
+// or React re-renders forever.
+const initial: StoreSnapshot = { state: emptyExamState(), hydrated: false };
 
-let snapshot: StoreSnapshot = seedSnapshot;
+let snapshot: StoreSnapshot = initial;
 let listeners: Listener[] = [];
-let hydrating = false;
 
-function emit() {
-  for (const listener of listeners) listener();
-}
-
-// Replace the snapshot wholesale so identity changes exactly when content does.
 function commit(state: ExamState, hydrated: boolean) {
   snapshot = { state, hydrated };
-  emit();
-}
-
-function persist(state: ExamState) {
-  try {
-    // Toasts are transient UI, never restored across reloads.
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, toasts: [] }));
-  } catch {
-    // A full or unavailable quota must not take the exam down.
-  }
+  for (const listener of listeners) listener();
 }
 
 export const examStore = {
@@ -77,50 +64,25 @@ export const examStore = {
   },
 
   getServerSnapshot(): StoreSnapshot {
-    return seedSnapshot;
+    return initial;
   },
 
-  // Adopt persisted state and begin listening for changes made in other tabs.
-  // Idempotent, so React's double-invoked effects in development are harmless.
-  hydrate() {
-    if (hydrating) return;
-    hydrating = true;
-    const stored = readPersisted(localStorage.getItem(STORAGE_KEY));
-    commit(stored ?? snapshot.state, true);
-    window.addEventListener("storage", (event) => {
-      if (event.key !== STORAGE_KEY) return;
-      const next = readPersisted(event.newValue);
-      if (next) commit(next, true);
-    });
-  },
-
-  // The single write path. Every mutation persists and notifies, so callers
-  // never have to remember to do either.
-  mutate(recipe: (previous: ExamState) => ExamState): ExamState {
-    const next = recipe(snapshot.state);
-    if (next === snapshot.state) return next;
-    commit(next, snapshot.hydrated);
-    if (snapshot.hydrated) persist(next);
-    return next;
-  },
-
-  // Live mode: adopt a snapshot assembled from the API instead of the seed.
-  // Failure is surfaced rather than swallowed — a monitor silently showing
-  // stale mock data would be worse than showing nothing.
+  /** Adopt a snapshot assembled from the API. */
   adoptServerState(state: ExamState) {
     commit(state, true);
   },
 
-  markHydrated() {
-    if (!snapshot.hydrated) commit(snapshot.state, true);
+  /** Local-only changes: toasts, and the optimistic echo of a saved answer. */
+  mutate(recipe: (previous: ExamState) => ExamState): ExamState {
+    const next = recipe(snapshot.state);
+    if (next === snapshot.state) return next;
+    commit(next, snapshot.hydrated);
+    return next;
   },
 
-  reset() {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Ignore — the in-memory reset below is what the user actually sees.
-    }
-    commit(createSeedState(), true);
+  /** Drop everything on sign-out, so the next account starts clean. */
+  clear() {
+    snapshot = initial;
+    for (const listener of listeners) listener();
   },
 };

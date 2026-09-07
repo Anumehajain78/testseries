@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useExam } from "@/app/providers";
-import { API_MODE, watchExam } from "@/lib/api";
+import { watchExam } from "@/lib/api";
 import { formatDateTime, formatTime, initials, statusLabel, timeSince } from "@/lib/format";
 import type { ActivityEntry, StudentExamStatus } from "@/lib/types";
 import {
@@ -144,7 +144,7 @@ export function MonitorScreen() {
   // moment of staleness rather than correctness.
   const [live, setLive] = useState(false);
   useEffect(() => {
-    if (API_MODE !== "live" || !params.id) return;
+    if (!params.id) return;
     const socket = watchExam(params.id, {
       onChange: () => { void refreshFromServer(); },
       onStatus: setLive,
@@ -181,10 +181,10 @@ export function MonitorScreen() {
     <div className="monitor-callout">
       <span className="pulse-ring small"><Icon name="monitor"/></span>
       <div>
-        <strong>{API_MODE === "live" && !live ? "Reconnecting…" : "Live monitoring active"}</strong>
-        <p>{API_MODE === "live" && !live
-          ? "The live connection dropped; the roster is refreshing on a timer until it returns."
-          : "Candidate status updates automatically from the synchronized session."}</p>
+        <strong>{live ? "Live monitoring active" : "Reconnecting…"}</strong>
+        <p>{live
+          ? "Candidate status updates automatically from the synchronized session."
+          : "The live connection dropped; the roster is refreshing on a timer until it returns."}</p>
       </div>
       <span>Last sync: {timeSince(new Date(nowMs).toISOString(), nowMs)}</span>
     </div>

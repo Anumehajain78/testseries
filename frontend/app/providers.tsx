@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { API_MODE, ApiError, CURRENT_STUDENT_ID, api, examStore, loadStateFromServer, readUser, storeToken } from "@/lib/api";
+import { ApiError, api, examStore, loadStateFromServer, readUser, signOut as forgetCredential, storeToken } from "@/lib/api";
 import { ConnectionError, SignInGate } from "@/components/sign-in";
 import type { AnswerValue, ExamState, NewTestInput } from "@/lib/types";
 
@@ -26,11 +26,13 @@ type ExamContextValue = {
   answerQuestion: (testId: string, questionId: string, value: AnswerValue) => Promise<void>;
   flagQuestion: (testId: string, questionId: string) => Promise<void>;
   submitExam: (testId: string, mode?: "manual" | "automatic") => Promise<void>;
-  setMockResultMode: (enabled: boolean) => Promise<void>;
+  publishResults: (published: boolean) => Promise<void>;
   dismissToast: (id: string) => void;
-  resetDemo: () => Promise<void>;
-  /** Re-read the server snapshot. No-op in mock mode. */
+  /** Re-read the server snapshot. */
   refreshFromServer: () => Promise<void>;
+  signOut: () => void;
+  /** The signed-in person, or null while the gate is up. */
+  currentUser: { id: string; role: string; fullName: string } | null;
 };
 
 const ExamContext = createContext<ExamContextValue | null>(null);
@@ -48,15 +50,11 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   // Four distinct states, because collapsing them shows a sign-in form to
   // someone who is already signed in and merely waiting for a response.
   type Phase = "loading" | "ready" | "signed-out" | "error";
-  const [phase, setPhase] = useState<Phase>(() => (API_MODE === "mock" ? "ready" : "loading"));
+  const [phase, setPhase] = useState<Phase>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (API_MODE === "mock") {
-      examStore.hydrate();
-      return;
-    }
     let cancelled = false;
     loadStateFromServer()
       .then((state) => {
@@ -109,19 +107,25 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   const answerQuestion = useCallback((testId: string, questionId: string, value: AnswerValue) => guard(() => api.saveAnswer(testId, questionId, value)), [guard]);
   const flagQuestion = useCallback((testId: string, questionId: string) => guard(() => api.toggleFlag(testId, questionId)), [guard]);
   const submitExam = useCallback(async (testId: string, mode: "manual" | "automatic" = "manual") => { await guard(() => api.submitExam(testId, mode)); }, [guard]);
-  const setMockResultMode = useCallback((enabled: boolean) => guard(() => api.setResultsPublished(enabled)), [guard]);
-  const resetDemo = useCallback(() => guard(() => api.resetDemoData()), [guard]);
+  const publishResults = useCallback((published: boolean) => guard(() => api.setResultsPublished(published)), [guard]);
 
   // Adopt a fresh server snapshot without disturbing the sign-in flow. Used by
   // the live monitor when the socket says something changed.
   const refreshFromServer = useCallback(async () => {
-    if (API_MODE !== "live") return;
     try {
       examStore.adoptServerState((await loadStateFromServer()) as ExamState);
     } catch {
       // A failed refresh leaves the last good snapshot on screen, which beats
       // blanking a monitor mid-examination.
     }
+  }, []);
+
+  const signOut = useCallback(() => {
+    forgetCredential();
+    // Clear the snapshot too: the next person to sign in must not glimpse the
+    // previous one's roster while their own loads.
+    examStore.clear();
+    setPhase("signed-out");
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -131,22 +135,23 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ExamContextValue>(() => ({
     state: snapshot.state,
     hydrated: snapshot.hydrated,
-    // In live mode this is whoever signed in; the mock's fixed candidate only
-    // applies when there is no server to ask.
-    currentStudentId: API_MODE === "live" ? (readUser()?.id ?? CURRENT_STUDENT_ID) : CURRENT_STUDENT_ID,
+    // Whoever signed in. There is no longer a fixed demo candidate to fall
+    // back to, which is the point.
+    currentStudentId: readUser()?.id ?? "",
+    currentUser: readUser(),
     createTest,
     scheduleExam,
     startExam,
     answerQuestion,
     flagQuestion,
     submitExam,
-    setMockResultMode,
+    publishResults,
     dismissToast,
-    resetDemo,
     refreshFromServer,
-  }), [snapshot, createTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, setMockResultMode, dismissToast, resetDemo, refreshFromServer]);
+    signOut,
+  }), [snapshot, createTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, publishResults, dismissToast, refreshFromServer, signOut]);
 
-  if (API_MODE === "live") {
+  {
     if (phase === "error") {
       return <ConnectionError message={loadError ?? "Unknown error"} onRetry={() => { setPhase("loading"); setAttempt((n) => n + 1); }} />;
     }
