@@ -5,6 +5,7 @@ import type { ExamApi } from "./types";
 export type { ExamApi, CreateExamResult, SubmitExamResult, SubmitMode } from "./types";
 export { CURRENT_STUDENT_ID } from "./mock";
 export { examStore, type StoreSnapshot } from "./store";
+export { watchExam, type MonitorSocket } from "./realtime";
 export {
   ApiError,
   candidateSessionId,

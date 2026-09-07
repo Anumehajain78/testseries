@@ -37,6 +37,20 @@ services:
       retries: 10
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    container_name: exam-control-redis
+    # Fan-out only. Every durable fact lives in Postgres, so losing Redis
+    # costs live updates and heartbeat freshness, never an exam.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${EXAM_REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres_data:
     name: exam_control_postgres_data

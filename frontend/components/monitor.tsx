@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useExam } from "@/app/providers";
+import { API_MODE, watchExam } from "@/lib/api";
 import { formatDateTime, formatTime, initials, statusLabel, timeSince } from "@/lib/format";
 import type { ActivityEntry, StudentExamStatus } from "@/lib/types";
 import {
@@ -129,7 +130,7 @@ export function StudentDetailPanel({ row, onClose, nowMs }: { row: MonitorRow | 
 // -----------------------------------------------------------------------------
 export function MonitorScreen() {
   const params = useParams<{ id: string }>();
-  const { state, hydrated } = useExam();
+  const { state, hydrated, refreshFromServer } = useExam();
   const [filter, setFilter] = useState<MonitorFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Display-only tick refreshes "time since last heartbeat" strings (Req 6.3, 6.6).
@@ -137,6 +138,22 @@ export function MonitorScreen() {
   useEffect(() => { const timer = window.setInterval(() => setNowMs(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
   const test = state.tests.find((item) => item.id === params.id);
+
+  // Live updates. The socket says *that* something changed; the snapshot says
+  // what — so one reducer serves both paths, and a dropped frame costs a
+  // moment of staleness rather than correctness.
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    if (API_MODE !== "live" || !params.id) return;
+    const socket = watchExam(params.id, {
+      onChange: () => { void refreshFromServer(); },
+      onStatus: setLive,
+    });
+    // Polling is the documented fallback, and runs whether or not the socket
+    // is up: losing the connection should slow the monitor, not stop it.
+    const poll = window.setInterval(() => { void refreshFromServer(); }, 15_000);
+    return () => { socket.close(); clearInterval(poll); };
+  }, [params.id, refreshFromServer]);
   const rows = useMemo(
     () => test ? buildMonitorRows(test.id, state.sessions, state.computers, state.students) : [],
     [test, state.sessions, state.computers, state.students],
@@ -163,7 +180,12 @@ export function MonitorScreen() {
     <MonitorStats summary={summary}/>
     <div className="monitor-callout">
       <span className="pulse-ring small"><Icon name="monitor"/></span>
-      <div><strong>Live monitoring active</strong><p>Candidate status updates automatically from the synchronized session.</p></div>
+      <div>
+        <strong>{API_MODE === "live" && !live ? "Reconnecting…" : "Live monitoring active"}</strong>
+        <p>{API_MODE === "live" && !live
+          ? "The live connection dropped; the roster is refreshing on a timer until it returns."
+          : "Candidate status updates automatically from the synchronized session."}</p>
+      </div>
       <span>Last sync: {timeSince(new Date(nowMs).toISOString(), nowMs)}</span>
     </div>
     <StudentMonitor rows={rows} filter={filter} onFilterChange={setFilter} onSelect={setSelectedId} nowMs={nowMs}/>

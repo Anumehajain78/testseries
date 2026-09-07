@@ -49,6 +49,8 @@ from app.schemas.session import (
     SessionState,
     SubmissionReceipt,
 )
+from app.realtime.events import publish_soon
+from app.schemas.enums import RealtimeEvent as RT
 from app.utils.clock import utcnow
 
 
@@ -183,6 +185,11 @@ def check_in(db: Session, session_id: UUID, principal: Principal, machine_id: st
     )
     db.commit()
     db.refresh(session)
+    publish_soon(
+        RT.STUDENT_CONNECTED, exam.id, exam.event_seq,
+        sessionId=str(session.id), studentId=str(session.student_id),
+        status=session.status.value,
+    )
     return _paper(db, session, exam)
 
 
@@ -343,6 +350,12 @@ def submit(
     )
     db.commit()
     db.refresh(session)
+    exam = db.get(Exam, session.exam_id)
+    publish_soon(
+        RT.SUBMISSION, session.exam_id, exam.event_seq,
+        sessionId=str(session.id), studentId=str(session.student_id),
+        status=session.status.value,
+    )
     return _receipt(db, session)
 
 

@@ -29,6 +29,8 @@ type ExamContextValue = {
   setMockResultMode: (enabled: boolean) => Promise<void>;
   dismissToast: (id: string) => void;
   resetDemo: () => Promise<void>;
+  /** Re-read the server snapshot. No-op in mock mode. */
+  refreshFromServer: () => Promise<void>;
 };
 
 const ExamContext = createContext<ExamContextValue | null>(null);
@@ -110,6 +112,18 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   const setMockResultMode = useCallback((enabled: boolean) => guard(() => api.setResultsPublished(enabled)), [guard]);
   const resetDemo = useCallback(() => guard(() => api.resetDemoData()), [guard]);
 
+  // Adopt a fresh server snapshot without disturbing the sign-in flow. Used by
+  // the live monitor when the socket says something changed.
+  const refreshFromServer = useCallback(async () => {
+    if (API_MODE !== "live") return;
+    try {
+      examStore.adoptServerState((await loadStateFromServer()) as ExamState);
+    } catch {
+      // A failed refresh leaves the last good snapshot on screen, which beats
+      // blanking a monitor mid-examination.
+    }
+  }, []);
+
   const dismissToast = useCallback((id: string) => {
     examStore.mutate((previous) => ({ ...previous, toasts: previous.toasts.filter((toast) => toast.id !== id) }));
   }, []);
@@ -129,7 +143,8 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     setMockResultMode,
     dismissToast,
     resetDemo,
-  }), [snapshot, createTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, setMockResultMode, dismissToast, resetDemo]);
+    refreshFromServer,
+  }), [snapshot, createTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, setMockResultMode, dismissToast, resetDemo, refreshFromServer]);
 
   if (API_MODE === "live") {
     if (phase === "error") {

@@ -15,9 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes_directory import audit_router, auth_router, directory_router
 from app.core.config import get_settings
+from app.realtime.broker import Broker, set_broker
 from app.services.sweep import sweep_loop
 from app.api.routes_exams import router as exams_router
 from app.api.routes_sessions import router as sessions_router
+from app.api.routes_ws import router as ws_router
 from app.schemas.realtime import (
     ClientFrame,
     ExamEndingFrame,
@@ -63,6 +65,10 @@ async def lifespan(_: FastAPI):
     if the tab is still open and the machine still connected, neither of which
     can be assumed of a candidate whose network just dropped.
     """
+    instance = Broker(get_settings().redis_url)
+    await instance.connect()
+    set_broker(instance)
+
     task = asyncio.create_task(sweep_loop())
     try:
         yield
@@ -70,6 +76,8 @@ async def lifespan(_: FastAPI):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        await instance.close()
+        set_broker(None)
 
 
 app.router.lifespan_context = lifespan
@@ -79,6 +87,9 @@ app.include_router(exams_router, prefix=API_PREFIX)
 app.include_router(sessions_router, prefix=API_PREFIX)
 app.include_router(directory_router, prefix=API_PREFIX)
 app.include_router(audit_router, prefix=API_PREFIX)
+# WebSocket routes are not versioned under the REST prefix: the handshake
+# carries its own token and the channel names are part of the realtime contract.
+app.include_router(ws_router)
 
 
 @app.get("/health", tags=["meta"], operation_id="health")

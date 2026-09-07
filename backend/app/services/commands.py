@@ -42,6 +42,8 @@ from app.schemas.enums import (
     SubjectType,
 )
 from app.schemas.exam import ExamCreate, ExamWindow
+from app.realtime.events import publish_soon
+from app.schemas.enums import RealtimeEvent as RT
 from app.services import queries
 from app.utils.clock import exam_window, utcnow
 
@@ -301,6 +303,7 @@ def schedule_exam(db: Session, exam_id: UUID, *, actor_id: UUID, actor_label: st
         exam_id=exam_id,
     )
     db.commit()
+    publish_soon(RT.SESSION_STATE_CHANGED, exam.id, exam.event_seq, seatedCount=len(assignments))
     return queries.get_exam(db, exam_id)
 
 
@@ -355,6 +358,12 @@ def start_exam(
         exam_id=exam_id,
     )
     db.commit()
+    # Fire-and-forget: the exam has started whether or not a browser hears it.
+    publish_soon(
+        RT.EXAM_STARTED, exam.id, exam.event_seq,
+        startsAt=starts_at.isoformat(), endsAt=ends_at.isoformat(),
+        releasedSessionCount=released,
+    )
     return _window(db, exam, released)
 
 
@@ -428,6 +437,7 @@ def end_exam(db: Session, exam_id: UUID, *, actor_id: UUID, actor_label: str) ->
         exam_id=exam_id,
     )
     db.commit()
+    publish_soon(RT.EXAM_ENDED, exam.id, exam.event_seq, sweptCount=swept)
     return _window(db, exam, 0)
 
 

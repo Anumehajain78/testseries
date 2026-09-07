@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     heartbeat_warning_seconds: int = Field(default=30, ge=1)
     heartbeat_offline_seconds: int = Field(default=90, ge=1)
 
+    # Fan-out transport for live updates. Unset means in-process only, which
+    # is correct for a single worker and degrades live updates (never data)
+    # when several workers are running.
+    redis_url: str | None = Field(default=None)
+
     # Every port the Next.js dev server might claim; production sets this
     # explicitly to the college's own origin.
     cors_origins: list[str] = Field(

@@ -13,4 +13,8 @@ psycopg[binary]>=3.2
 argon2-cffi>=23.0
 pyjwt>=2.9
 
-# Realtime dependencies (redis) arrive with the step that needs them.
+# Realtime
+# Cross-worker fan-out for live updates. Optional at runtime: without a
+# configured REDIS_URL the API delivers in-process, which is correct for a
+# single worker and degrades live updates (never data) beyond one.
+redis>=5.0
