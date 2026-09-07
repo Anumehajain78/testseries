@@ -2221,12 +2221,12 @@
         },
         "required": [
           "id",
+          "examId",
           "studentId",
           "studentName",
           "registrationNo",
           "status",
-          "connection",
-          "examId"
+          "connection"
         ],
         "title": "SessionDetail",
         "type": "object"
@@ -2351,6 +2351,11 @@
           "connection": {
             "$ref": "#/components/schemas/ConnectionState"
           },
+          "examId": {
+            "format": "uuid",
+            "title": "Examid",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2427,6 +2432,7 @@
         },
         "required": [
           "id",
+          "examId",
           "studentId",
           "studentName",
           "registrationNo",
@@ -4360,7 +4366,43 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "List My Exams",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/api/v1/me/sessions": {
+      "get": {
+        "description": "This candidate's own sessions, so they can find the paper they sit.",
+        "operationId": "listMySessions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SessionRow"
+                  },
+                  "title": "Response Listmysessions",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List My Sessions",
         "tags": [
           "sessions"
         ]
@@ -4404,6 +4446,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Session Paper",
         "tags": [
           "sessions"
@@ -4478,6 +4525,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Save Answer",
         "tags": [
           "sessions"
@@ -4532,6 +4584,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Check In",
         "tags": [
           "sessions"
@@ -4576,6 +4633,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Session Detail",
         "tags": [
           "sessions"
@@ -4698,6 +4760,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Toggle Flag",
         "tags": [
           "sessions"
@@ -4742,6 +4809,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Session State",
         "tags": [
           "sessions"
@@ -4806,6 +4878,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Submit Session",
         "tags": [
           "sessions"

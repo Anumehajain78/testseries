@@ -7,6 +7,9 @@ import type {
   ExamSummaryDto,
   ExamWindowDto,
   LabDto,
+  SessionPaperDto,
+  SessionStateDto,
+  SubmissionReceiptDto,
   ResultsPageDto,
   SessionRowDto,
   StudentDto,
@@ -28,6 +31,27 @@ import type {
 
 const BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1").replace(/\/$/, "");
 const TOKEN_KEY = "northbridge-access-token";
+const USER_KEY = "northbridge-user";
+
+export interface SignedInUser { id: string; role: string; fullName: string }
+
+export function readUser(): SignedInUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as SignedInUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeUser(user: SignedInUser | null): void {
+  try {
+    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+    else localStorage.removeItem(USER_KEY);
+  } catch {
+    // Non-fatal: the session simply does not survive a reload.
+  }
+}
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -45,6 +69,7 @@ export function readToken(): string | null {
 }
 
 export function storeToken(token: string | null): void {
+  if (!token) storeUser(null);
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);
@@ -100,6 +125,19 @@ async function describe(response: Response): Promise<string> {
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 
+const put = <T>(path: string, body?: unknown) =>
+  request<T>(path, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body) });
+
+export const candidateWrites = {
+  checkIn: (sessionId: string, machineId?: string) =>
+    post<SessionPaperDto>(`/sessions/${sessionId}/checkin`, { machineId: machineId ?? null }),
+  saveAnswer: (sessionId: string, questionId: string, value: unknown, clientSeq: number) =>
+    put(`/sessions/${sessionId}/answers/${questionId}`, { value, clientSeq }),
+  toggleFlag: (sessionId: string, questionId: string) =>
+    put(`/sessions/${sessionId}/flags/${questionId}`, {}),
+  submit: (sessionId: string) => post<SubmissionReceiptDto>(`/sessions/${sessionId}/submit`, {}),
+};
+
 export const writes = {
   createExam: (body: unknown) => post<ExamDetailDto>("/exams", body),
   scheduleExam: (examId: string) => post<ExamDetailDto>(`/exams/${examId}/schedule`, {}),
@@ -122,6 +160,7 @@ export async function signIn(email: string, password: string): Promise<TokenPair
   }
   const tokens = (await response.json()) as TokenPairDto;
   storeToken(tokens.accessToken);
+  storeUser({ id: tokens.user.id, role: tokens.user.role, fullName: tokens.user.fullName });
   return tokens;
 }
 
@@ -260,6 +299,11 @@ export async function loadStateFromServer(): Promise<Partial<ExamState>> {
   // handle it on the same code path as an expired token.
   if (!readToken()) throw new ApiError(401, "Not signed in");
 
+  // A candidate is not a smaller administrator: they get their own paper and
+  // nothing else. Branching here is what keeps the faculty exam — the one
+  // carrying answer keys — off a candidate's machine entirely.
+  if (readUser()?.role === "STUDENT") return loadCandidateState();
+
   const [examPage, studentPage, labs, auditPage] = await Promise.all([
     request<PageDto<ExamSummaryDto>>("/exams?limit=200"),
     request<PageDto<StudentDto>>("/students?limit=200"),
@@ -324,4 +368,124 @@ export async function loadStateFromServer(): Promise<Partial<ExamState>> {
     toasts: [],
     mockResultMode: resultPages.some((page) => page.published),
   };
+}
+
+/**
+ * The candidate's world: their assessments, their session, their answers.
+ *
+ * Assembled into the same ExamState shape the student screens already read, so
+ * those screens did not have to change. Nothing here touches an endpoint that
+ * can express an answer key.
+ */
+async function loadCandidateState(): Promise<Partial<ExamState>> {
+  const user = readUser();
+  const exams = await request<ExamSummaryDto[]>("/me/exams");
+
+  // The paper worth opening: the one that is running, else the next one up.
+  const target = exams.find((exam) => exam.status === "LIVE") ?? exams[0];
+  const student: Student = {
+    id: user?.id ?? "me",
+    registrationNo: "",
+    name: user?.fullName ?? "Candidate",
+    email: "",
+    program: "",
+    semester: 0,
+    section: "",
+    status: "active",
+    seat: "",
+  };
+
+  if (!target) {
+    return { ...emptyState(), students: [student] };
+  }
+
+  // Resolve the exam into the session this candidate actually sits. The ids
+  // are different things, and only the server can say which session is theirs.
+  const mySessions = await request<SessionRowDto[]>("/me/sessions");
+  const sessionId = mySessions.find((row) => row.examId === target.id)?.id ?? null;
+  if (!sessionId) return { ...emptyState(), students: [student] };
+
+  // Check-in is idempotent and draws the paper on first call, so it is the
+  // right way to fetch it whether or not this is the candidate's first visit.
+  const paper = await candidateWrites.checkIn(sessionId).catch(() => null);
+  if (!paper) return { ...emptyState(), students: [student] };
+
+  const state = await request<SessionStateDto>(`/sessions/${paper.sessionId}/state`);
+  const key = `${target.id}:${student.id}`;
+
+  const test: Test = {
+    ...toTest(target),
+    instructions: paper.instructions ?? [],
+    // StudentQuestionOut has no answer-key field, so nothing to strip.
+    questions: (paper.questions ?? []).map((question) => ({
+      id: question.id,
+      type: question.type,
+      prompt: question.prompt,
+      marks: question.marks,
+      options: (question.options ?? []).map((option) => option.body),
+    })),
+    config: {
+      questionsPerStudent: paper.config?.questionsPerStudent ?? 0,
+      randomizeQuestions: paper.config?.randomizeQuestions ?? false,
+      randomizeOptions: paper.config?.randomizeOptions ?? false,
+      allowNavigation: paper.config?.allowNavigation ?? true,
+      autoSubmitOnExpiry: paper.config?.autoSubmitOnExpiry ?? true,
+    },
+    endsAt: paper.endsAt ?? undefined,
+    assignedStudentIds: [student.id],
+  };
+
+  const terminal = paper.status === "SUBMITTED" || paper.status === "AUTO_SUBMITTED";
+
+  return {
+    ...emptyState(),
+    tests: [test],
+    students: [student],
+    sessions: [{
+      testId: target.id,
+      studentId: student.id,
+      computerId: paper.sessionId,
+      connection: "online",
+      examStatus: toSessionStatus(paper.status),
+      warnings: 0,
+      activity: [],
+    }],
+    answers: { [key]: (state.answers ?? {}) as Record<string, AnswerValue> },
+    flags: { [key]: (state.flagged ?? []).map(String) },
+    submissions: terminal
+      ? [{
+          id: paper.sessionId,
+          testId: target.id,
+          studentId: student.id,
+          answers: (state.answers ?? {}) as Record<string, AnswerValue>,
+          flagged: (state.flagged ?? []).map(String),
+          submittedAt: new Date().toISOString(),
+          mode: paper.status === "AUTO_SUBMITTED" ? "automatic" : "manual",
+        }]
+      : [],
+  };
+}
+
+/** The shape every bootstrap fills in, so no caller sees a half-built state. */
+function emptyState(): Partial<ExamState> {
+  return {
+    version: 2,
+    tests: [],
+    students: [],
+    labs: [],
+    computers: [],
+    sessions: [],
+    results: [],
+    audits: [],
+    submissions: [],
+    answers: {},
+    flags: {},
+    toasts: [],
+    mockResultMode: false,
+  };
+}
+
+/** The session id for a candidate's current paper, needed by the writes. */
+export function candidateSessionId(state: ExamState, examId: string, studentId: string): string | null {
+  return state.sessions.find((s) => s.testId === examId && s.studentId === studentId)?.computerId ?? null;
 }

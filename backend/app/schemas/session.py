@@ -21,6 +21,7 @@ class SessionRow(Schema):
     """
 
     id: UUID
+    exam_id: UUID = Field(alias="examId")
     student_id: UUID = Field(alias="studentId")
     student_name: str = Field(alias="studentName")
     registration_no: str = Field(alias="registrationNo")
@@ -70,7 +71,6 @@ class ActivityEntry(Schema):
 class SessionDetail(SessionRow):
     """Drill-down for one candidate, including their event timeline."""
 
-    exam_id: UUID = Field(alias="examId")
     activity: list[ActivityEntry] = Field(default_factory=list)
 
 

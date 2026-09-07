@@ -11,9 +11,10 @@ later:
 
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
 
-from app import examples
+from app.api.deps import Candidate, CurrentPrincipal, DbSession, Staff
+from app.services import queries, sessions as session_service
 from app.schemas.common import ErrorDetail
 from app.schemas.exam import ExamSummary
 from app.schemas.session import (
@@ -24,6 +25,7 @@ from app.schemas.session import (
     SessionDetail,
     SessionEventRequest,
     SessionPaper,
+    SessionRow,
     SessionState,
     SubmissionReceipt,
     SubmitRequest,
@@ -40,37 +42,49 @@ WRITE_REFUSED = {
 
 
 @router.get("/me/exams", response_model=list[ExamSummary], operation_id="listMyExams")
-async def list_my_exams() -> list[ExamSummary]:
+async def list_my_exams(db: DbSession, principal: Candidate) -> list[ExamSummary]:
     """Assessments the authenticated candidate is enrolled in."""
-    return [examples.EXAM_SUMMARY]
+    return queries.list_my_exams(db, UUID(principal.subject_id))
+
+
+@router.get("/me/sessions", response_model=list[SessionRow], operation_id="listMySessions")
+async def list_my_sessions(db: DbSession, principal: Candidate) -> list[SessionRow]:
+    """This candidate's own sessions, so they can find the paper they sit."""
+    return queries.list_my_sessions(db, UUID(principal.subject_id))
 
 
 @router.post("/sessions/{session_id}/checkin", response_model=SessionPaper, operation_id="checkInSession")
-async def check_in(session_id: UUID, payload: CheckInRequest) -> SessionPaper:
+async def check_in(
+    session_id: UUID, payload: CheckInRequest, db: DbSession, principal: CurrentPrincipal
+) -> SessionPaper:
     """Enters the waiting room and materializes this candidate's paper.
 
     The question and option ordering is drawn **once, here**, and persisted on
     the session. Recomputing it per request would reshuffle the paper on
     reconnect and leave every saved answer pointing at the wrong question.
     """
-    return examples.SESSION_PAPER
+    return session_service.check_in(db, session_id, principal, payload.machine_id)
 
 
 @router.get("/sessions/{session_id}", response_model=SessionPaper, operation_id="getSessionPaper")
-async def get_session_paper(session_id: UUID) -> SessionPaper:
+async def get_session_paper(
+    session_id: UUID, db: DbSession, principal: CurrentPrincipal
+) -> SessionPaper:
     """The paper as ordered for this candidate. Carries no answer keys."""
-    return examples.SESSION_PAPER
+    return session_service.get_paper(db, session_id, principal)
 
 
 @router.get("/sessions/{session_id}/state", response_model=SessionState, operation_id="getSessionState")
-async def get_session_state(session_id: UUID) -> SessionState:
+async def get_session_state(
+    session_id: UUID, db: DbSession, principal: CurrentPrincipal
+) -> SessionState:
     """Reconnect recovery.
 
     Returns the server's view of every saved answer, so a client that missed
     acknowledgements during a network drop can tell what actually landed
     instead of guessing.
     """
-    return examples.SESSION_STATE
+    return session_service.get_state(db, session_id, principal)
 
 
 @router.put(
@@ -79,14 +93,20 @@ async def get_session_state(session_id: UUID) -> SessionState:
     responses=WRITE_REFUSED,
     operation_id="saveAnswer",
 )
-async def save_answer(session_id: UUID, question_id: UUID, payload: SaveAnswerRequest) -> SaveAnswerResponse:
+async def save_answer(
+    session_id: UUID,
+    question_id: UUID,
+    payload: SaveAnswerRequest,
+    db: DbSession,
+    principal: CurrentPrincipal,
+) -> SaveAnswerResponse:
     """Idempotent upsert of one answer.
 
     ``client_seq`` lets a stale write that arrives late after a reconnect be
     discarded without relying on either clock.
     """
-    return SaveAnswerResponse(
-        question_id=question_id, saved_at=examples.server_time(), accepted=True
+    return session_service.save_answer(
+        db, session_id, question_id, principal, payload.value, payload.client_seq
     )
 
 
@@ -96,11 +116,11 @@ async def save_answer(session_id: UUID, question_id: UUID, payload: SaveAnswerRe
     responses=WRITE_REFUSED,
     operation_id="toggleFlag",
 )
-async def toggle_flag(session_id: UUID, question_id: UUID) -> SaveAnswerResponse:
+async def toggle_flag(
+    session_id: UUID, question_id: UUID, db: DbSession, principal: CurrentPrincipal
+) -> SaveAnswerResponse:
     """Toggles the review flag for one question."""
-    return SaveAnswerResponse(
-        question_id=question_id, saved_at=examples.server_time(), accepted=True
-    )
+    return session_service.toggle_flag(db, session_id, question_id, principal)
 
 
 @router.post(
@@ -109,22 +129,27 @@ async def toggle_flag(session_id: UUID, question_id: UUID) -> SaveAnswerResponse
     responses=WRITE_REFUSED,
     operation_id="submitSession",
 )
-async def submit_session(session_id: UUID, payload: SubmitRequest) -> SubmissionReceipt:
+async def submit_session(
+    session_id: UUID, payload: SubmitRequest, db: DbSession, principal: CurrentPrincipal
+) -> SubmissionReceipt:
     """Final submission.
 
     Idempotent: a repeat call returns the original receipt rather than
     recording a second submission.
     """
-    return examples.RECEIPT
+    return session_service.submit(db, session_id, principal)
 
 
 @router.get("/sessions/{session_id}/detail", response_model=SessionDetail, operation_id="getSessionDetail")
-async def get_session_detail(session_id: UUID) -> SessionDetail:
+async def get_session_detail(session_id: UUID, db: DbSession, _: Staff) -> SessionDetail:
     """Invigilator drill-down: identity, machine, timings, and event timeline.
 
     Faculty scope - this is the monitor's detail drawer, not a candidate view.
     """
-    return examples.SESSION_DETAIL
+    detail = queries.get_session_detail(db, session_id)
+    if detail is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    return detail
 
 
 @router.post(

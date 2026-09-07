@@ -204,6 +204,51 @@ def get_exam(db: Session, exam_id: UUID) -> ExamDetail | None:
     )
 
 
+def list_my_exams(db: Session, student_id: UUID) -> list[ExamSummary]:
+    """Assessments this candidate is enrolled in.
+
+    Drafts are excluded: an exam still being written is not something a
+    candidate should be able to see, or infer the existence of.
+    """
+    rows = db.execute(
+        select(Exam, Lab.name)
+        .join(Lab, Lab.id == Exam.lab_id)
+        .join(ExamEnrolment, ExamEnrolment.exam_id == Exam.id)
+        .where(ExamEnrolment.student_id == student_id, Exam.status != ExamStatus.DRAFT)
+        .order_by(Exam.scheduled_at.desc())
+    ).all()
+    counts = _exam_counts(db, [exam.id for exam, _ in rows])
+    return [_to_summary(exam, lab_name, counts.get(exam.id, (0, 0, 0))) for exam, lab_name in rows]
+
+
+def list_my_sessions(db: Session, student_id: UUID) -> list[SessionRow]:
+    """This candidate's own sessions.
+
+    A candidate needs to turn "the exam I can see" into "the session I sit",
+    and must not have to guess an id or be handed someone else's.
+    """
+    now = utcnow()
+    rows = db.execute(
+        select(ExamSession, User, Student, Computer.machine_id)
+        .join(Student, Student.user_id == ExamSession.student_id)
+        .join(User, User.id == Student.user_id)
+        .outerjoin(Computer, Computer.id == ExamSession.computer_id)
+        .where(ExamSession.student_id == student_id)
+    ).all()
+    return [
+        _to_session_row(session, user, student, machine_id, 0, now)
+        for session, user, student, machine_id in rows
+    ]
+
+
+def find_session(db: Session, exam_id: UUID, student_id: UUID) -> ExamSession | None:
+    return db.execute(
+        select(ExamSession).where(
+            ExamSession.exam_id == exam_id, ExamSession.student_id == student_id
+        )
+    ).scalar_one_or_none()
+
+
 # ---------------------------------------------------------------------------
 # Sessions and monitoring
 # ---------------------------------------------------------------------------
@@ -243,6 +288,7 @@ def _to_session_row(
 ) -> SessionRow:
     return SessionRow(
         id=session.id,
+        exam_id=session.exam_id,
         student_id=session.student_id,
         student_name=user.full_name,
         registration_no=student.registration_no,
@@ -316,7 +362,6 @@ def get_session_detail(db: Session, session_id: UUID) -> SessionDetail | None:
 
     return SessionDetail(
         **base.model_dump(),
-        exam_id=session.exam_id,
         activity=[
             ActivityEntry(
                 at=event.occurred_at,

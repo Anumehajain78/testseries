@@ -1,6 +1,6 @@
-import type { NewTestInput } from "@/lib/types";
+import type { AnswerValue, NewTestInput } from "@/lib/types";
 import { examStore } from "./store";
-import { loadStateFromServer, writes } from "./http";
+import { candidateSessionId, candidateWrites, loadStateFromServer, readUser, writes } from "./http";
 import type { CreateExamResult, ExamApi, SubmitExamResult } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -23,11 +23,23 @@ async function refresh(): Promise<void> {
   examStore.adoptServerState((await loadStateFromServer()) as Parameters<typeof examStore.adoptServerState>[0]);
 }
 
-function notYet(action: string): never {
-  throw new Error(
-    `${action} is not available against the server yet — the candidate exam path lands in a later step.`,
-  );
+/** The session behind the candidate's current paper. */
+function sessionFor(examId: string): string {
+  const snapshot = examStore.getSnapshot().state;
+  const studentId = readUser()?.id ?? "";
+  const sessionId = candidateSessionId(snapshot, examId, studentId);
+  if (!sessionId) throw new Error("No examination session is open for you.");
+  return sessionId;
 }
+
+// Monotonic per answer, so a write that arrives late after a reconnect is
+// recognised as stale by the server rather than overwriting a newer one.
+const seqs = new Map<string, number>();
+const nextSeq = (key: string) => {
+  const next = (seqs.get(key) ?? 0) + 1;
+  seqs.set(key, next);
+  return next;
+};
 
 export const liveApi: ExamApi = {
   async createExam(input: NewTestInput): Promise<CreateExamResult> {
@@ -90,10 +102,39 @@ export const liveApi: ExamApi = {
     await refresh();
   },
 
-  async saveAnswer(): Promise<void> { notYet("Saving an answer"); },
-  async toggleFlag(): Promise<void> { notYet("Flagging a question"); },
-  async submitExam(): Promise<SubmitExamResult | null> {
-    notYet("Submitting an examination");
+  async saveAnswer(examId: string, questionId: string, value: AnswerValue) {
+    const sessionId = sessionFor(examId);
+    await candidateWrites.saveAnswer(sessionId, questionId, value, nextSeq(`${sessionId}:${questionId}`));
+    // Optimistic locally: the answer is already on screen, and refetching the
+    // whole paper on every keystroke would be absurd. The server is
+    // authoritative on reconnect via /state.
+    examStore.mutate((previous) => {
+      const key = `${examId}:${readUser()?.id ?? ""}`;
+      return { ...previous, answers: { ...previous.answers, [key]: { ...(previous.answers[key] ?? {}), [questionId]: value } } };
+    });
+  },
+
+  async toggleFlag(examId: string, questionId: string) {
+    const sessionId = sessionFor(examId);
+    await candidateWrites.toggleFlag(sessionId, questionId);
+    examStore.mutate((previous) => {
+      const key = `${examId}:${readUser()?.id ?? ""}`;
+      const flagged = previous.flags[key] ?? [];
+      return {
+        ...previous,
+        flags: {
+          ...previous.flags,
+          [key]: flagged.includes(questionId) ? flagged.filter((id) => id !== questionId) : [...flagged, questionId],
+        },
+      };
+    });
+  },
+
+  async submitExam(examId: string): Promise<SubmitExamResult | null> {
+    const sessionId = sessionFor(examId);
+    const receipt = await candidateWrites.submit(sessionId);
+    await refresh();
+    return { submissionId: receipt.submissionId };
   },
 
   async resetDemoData() {

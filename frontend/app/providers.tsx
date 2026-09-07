@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { API_MODE, ApiError, CURRENT_STUDENT_ID, api, examStore, loadStateFromServer, storeToken } from "@/lib/api";
+import { API_MODE, ApiError, CURRENT_STUDENT_ID, api, examStore, loadStateFromServer, readUser, storeToken } from "@/lib/api";
 import { ConnectionError, SignInGate } from "@/components/sign-in";
 import type { AnswerValue, ExamState, NewTestInput } from "@/lib/types";
 
@@ -117,7 +117,9 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ExamContextValue>(() => ({
     state: snapshot.state,
     hydrated: snapshot.hydrated,
-    currentStudentId: CURRENT_STUDENT_ID,
+    // In live mode this is whoever signed in; the mock's fixed candidate only
+    // applies when there is no server to ask.
+    currentStudentId: API_MODE === "live" ? (readUser()?.id ?? CURRENT_STUDENT_ID) : CURRENT_STUDENT_ID,
     createTest,
     scheduleExam,
     startExam,

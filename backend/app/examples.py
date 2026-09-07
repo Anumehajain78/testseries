@@ -124,6 +124,7 @@ STUDENT_QUESTION = StudentQuestionOut(
 
 SESSION_ROW = SessionRow(
     id=SESSION_ID,
+    exam_id=EXAM_ID,
     student_id=STUDENT_ID,
     student_name="Aarav Mehta",
     registration_no="23CSE1001",
@@ -147,7 +148,6 @@ MONITOR_SNAPSHOT = MonitorSnapshot(
 
 SESSION_DETAIL = SessionDetail(
     **SESSION_ROW.model_dump(),
-    exam_id=EXAM_ID,
     activity=[
         ActivityEntry(at=NOW - timedelta(minutes=8), event="SESSION_CHECKED_IN", severity="INFO", detail="Signed in to exam client"),
         ActivityEntry(at=NOW, event="EXAM_STARTED", severity="INFO", detail="Exam started"),

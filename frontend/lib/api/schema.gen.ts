@@ -449,6 +449,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List My Sessions
+         * @description This candidate's own sessions, so they can find the paper they sit.
+         */
+        get: operations["listMySessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{session_id}": {
         parameters: {
             query?: never;
@@ -1778,6 +1798,11 @@ export interface components {
             checkedInAt?: string | null;
             connection: components["schemas"]["ConnectionState"];
             /**
+             * Examid
+             * Format: uuid
+             */
+            examId: string;
+            /**
              * Id
              * Format: uuid
              */
@@ -2903,6 +2928,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExamSummary"][];
+                };
+            };
+        };
+    };
+    listMySessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRow"][];
                 };
             };
         };

@@ -6,6 +6,8 @@ truth for the frontend's generated types, so drift between client and server
 becomes impossible rather than merely discouraged.
 """
 
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI
@@ -13,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes_directory import audit_router, auth_router, directory_router
 from app.core.config import get_settings
+from app.services.sweep import sweep_loop
 from app.api.routes_exams import router as exams_router
 from app.api.routes_sessions import router as sessions_router
 from app.schemas.realtime import (
@@ -51,6 +54,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run the deadline sweep alongside the API.
+
+    Auto-submission has to be the server's job: a browser-side timer only fires
+    if the tab is still open and the machine still connected, neither of which
+    can be assumed of a candidate whose network just dropped.
+    """
+    task = asyncio.create_task(sweep_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+app.router.lifespan_context = lifespan
 
 app.include_router(auth_router, prefix=API_PREFIX)
 app.include_router(exams_router, prefix=API_PREFIX)

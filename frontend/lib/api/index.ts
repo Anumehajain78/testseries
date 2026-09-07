@@ -5,7 +5,18 @@ import type { ExamApi } from "./types";
 export type { ExamApi, CreateExamResult, SubmitExamResult, SubmitMode } from "./types";
 export { CURRENT_STUDENT_ID } from "./mock";
 export { examStore, type StoreSnapshot } from "./store";
-export { ApiError, loadStateFromServer, readToken, signIn, storeToken, writes } from "./http";
+export {
+  ApiError,
+  candidateSessionId,
+  candidateWrites,
+  loadStateFromServer,
+  readToken,
+  readUser,
+  signIn,
+  storeToken,
+  writes,
+  type SignedInUser,
+} from "./http";
 
 // ---------------------------------------------------------------------------
 // Implementation selection

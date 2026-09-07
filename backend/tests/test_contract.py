@@ -113,24 +113,14 @@ class TestRoutesAnswer:
         response = client.get(f"{API}/exams", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 403
 
-    def test_submit_returns_a_receipt(self):
-        response = client.post(f"{API}/sessions/{SESSION_ID}/submit", json={})
-        assert response.status_code == 200, response.text
-        assert response.json()["submissionId"]
-
-    def test_save_answer_accepts_the_discriminated_union(self):
-        response = client.put(
+    def test_candidate_routes_require_a_credential(self):
+        """These moved to the candidate suite, which signs in as a real
+        candidate. What belongs here is that they are guarded at all."""
+        assert client.post(f"{API}/sessions/{SESSION_ID}/submit", json={}).status_code == 401
+        assert client.put(
             f"{API}/sessions/{SESSION_ID}/answers/{QUESTION_ID}",
-            json={"value": {"kind": "single", "option": 1}, "clientSeq": 7},
-        )
-        assert response.status_code == 200, response.text
-
-    def test_save_answer_rejects_a_malformed_value(self):
-        response = client.put(
-            f"{API}/sessions/{SESSION_ID}/answers/{QUESTION_ID}",
-            json={"value": {"kind": "nonsense"}},
-        )
-        assert response.status_code == 422
+            json={"value": {"kind": "single", "option": 1}},
+        ).status_code == 401
 
     def test_heartbeat_is_accepted(self):
         response = client.post(
@@ -202,10 +192,11 @@ class TestAnswerKeysCannotReachCandidates:
         ref = paper["properties"]["questions"]["items"]["$ref"]
         assert ref.endswith("/StudentQuestionOut")
 
-    def test_a_live_paper_response_contains_no_answer_key(self):
-        body = client.get(f"{API}/sessions/{SESSION_ID}").text
-        assert "isCorrect" not in body
-        assert "is_correct" not in body
+    def test_the_candidate_paper_route_is_guarded(self):
+        # An anonymous caller gets nothing at all, which is the strongest
+        # possible version of "no answer key reaches them". The authenticated
+        # case is asserted in the candidate suite.
+        assert client.get(f"{API}/sessions/{SESSION_ID}").status_code == 401
 
 
 class TestSchemaHygiene:
