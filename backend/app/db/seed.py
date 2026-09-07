@@ -313,9 +313,12 @@ def seed(db: Session) -> dict[str, int]:
         duration=45, starts=now - timedelta(minutes=30), ends=now + timedelta(minutes=15),
     )
     # Scheduled later today, so the dashboard's "today" panel has two rows.
+    # READY, not SCHEDULED: its roster is seated below, and seating is exactly
+    # what READY means. A SCHEDULED exam with no sessions cannot legally be
+    # started, so seeding one would ship a test that can never run.
     cn_exam = build_exam(
         code="CSE-307-P1", title="Computer Networks Practice Test",
-        course="Computer Networks", status=ExamStatus.SCHEDULED, lab=lab_b,
+        course="Computer Networks", status=ExamStatus.READY, lab=lab_b,
         questions=cn_q, roster=cn_roster, scheduled_offset=timedelta(minutes=90), duration=40,
         config={"questionsPerStudent": 4, "randomizeQuestions": True, "randomizeOptions": False,
                 "allowNavigation": True, "autoSubmitOnExpiry": True},

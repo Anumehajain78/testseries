@@ -7,7 +7,7 @@ from pydantic import Field, model_validator
 
 from app.schemas.common import Schema
 from app.schemas.enums import ExamStatus
-from app.schemas.question import QuestionOut
+from app.schemas.question import QuestionIn, QuestionOut
 
 
 class ExamConfig(Schema):
@@ -41,8 +41,19 @@ class ExamCreate(Schema):
     scheduled_at: datetime = Field(alias="scheduledAt")
     lab_id: UUID = Field(alias="labId")
     student_ids: list[UUID] = Field(default_factory=list, alias="studentIds")
+    #: Existing bank questions to draw into this paper.
     question_ids: list[UUID] = Field(default_factory=list, alias="questionIds")
+    #: Questions authored inline. They are created in the bank and then added
+    #: to the paper, so a paper written in the create form is reusable
+    #: afterwards rather than trapped inside one exam.
+    questions: list[QuestionIn] = Field(default_factory=list)
     config: ExamConfig = Field(default_factory=ExamConfig)
+
+    @model_validator(mode="after")
+    def _has_a_paper(self) -> "ExamCreate":
+        if not self.question_ids and not self.questions:
+            raise ValueError("an exam needs at least one question")
+        return self
 
 
 class ExamUpdate(Schema):

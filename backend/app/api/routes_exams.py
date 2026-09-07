@@ -1,17 +1,16 @@
 """Exam management. Faculty and admin scope.
 
-Step 02 returns static examples: the purpose here is to pin the request and
-response shapes, the status codes, and the operation ids the generated client
-is built from. Handler bodies are replaced in step 03; these signatures are not.
+Reads query the database; writes run the exam lifecycle through the state
+machine in ``app.domain.transitions``. A refused transition is a 409 carrying
+both states, not a generic error.
 """
 
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app import examples
 from app.api.deps import DbSession, Staff
-from app.services import queries
+from app.services import commands, queries
 from app.schemas.common import ErrorDetail, Page
 from app.schemas.enums import ExamStatus
 from app.schemas.exam import (
@@ -50,9 +49,15 @@ async def list_exams(
 
 
 @router.post("", response_model=ExamDetail, status_code=status.HTTP_201_CREATED, operation_id="createExam")
-async def create_exam(payload: ExamCreate) -> ExamDetail:
-    """Creates the exam as a DRAFT."""
-    return examples.EXAM_DETAIL
+async def create_exam(payload: ExamCreate, db: DbSession, principal: Staff) -> ExamDetail:
+    """Creates the exam as a DRAFT.
+
+    Questions may be referenced from the bank or authored inline; either way
+    they end up in the bank, so a paper written here is reusable afterwards.
+    """
+    return commands.create_exam(
+        db, payload, actor_id=UUID(principal.subject_id), actor_label="Exam Cell"
+    )
 
 
 @router.get("/{exam_id}", response_model=ExamDetail, operation_id="getExam")
@@ -69,43 +74,63 @@ async def get_exam(exam_id: UUID, db: DbSession, _: Staff) -> ExamDetail:
 
 
 @router.patch("/{exam_id}", response_model=ExamDetail, responses=ILLEGAL_TRANSITION, operation_id="updateExam")
-async def update_exam(exam_id: UUID, payload: ExamUpdate) -> ExamDetail:
+async def update_exam(
+    exam_id: UUID, payload: ExamUpdate, db: DbSession, principal: Staff
+) -> ExamDetail:
     """Rejected with 409 unless the exam is still DRAFT."""
-    return examples.EXAM_DETAIL
+    return commands.update_exam(
+        db, exam_id, payload, actor_id=UUID(principal.subject_id), actor_label="Exam Cell"
+    )
 
 
 @router.post("/{exam_id}/schedule", response_model=ExamDetail, responses=ILLEGAL_TRANSITION, operation_id="scheduleExam")
-async def schedule_exam(exam_id: UUID) -> ExamDetail:
+async def schedule_exam(exam_id: UUID, db: DbSession, principal: Staff) -> ExamDetail:
     """DRAFT to SCHEDULED, then seats the roster to reach READY.
 
     Validates the roster against lab capacity inside the same transaction. The
     frontend performs this check too, but only as UX - a candidate can edit the
     client, so this is where it actually holds.
     """
-    return examples.EXAM_DETAIL
+    return commands.schedule_exam(
+        db, exam_id, actor_id=UUID(principal.subject_id), actor_label="Exam Cell"
+    )
 
 
 @router.post("/{exam_id}/start", response_model=ExamWindow, responses=ILLEGAL_TRANSITION, operation_id="startExam")
-async def start_exam(exam_id: UUID, payload: ExamStartRequest) -> ExamWindow:
+async def start_exam(
+    exam_id: UUID, payload: ExamStartRequest, db: DbSession, principal: Staff
+) -> ExamWindow:
     """Stamps the authoritative window and releases waiting candidates.
 
     Idempotent: a retry with the same idempotency key returns the existing
     window rather than shifting it, and candidates already answering are left
     untouched.
     """
-    return examples.EXAM_WINDOW
+    return commands.start_exam(
+        db,
+        exam_id,
+        idempotency_key=payload.idempotency_key,
+        actor_id=UUID(principal.subject_id),
+        actor_label="Exam Cell",
+    )
 
 
 @router.post("/{exam_id}/end", response_model=ExamWindow, responses=ILLEGAL_TRANSITION, operation_id="endExam")
-async def end_exam(exam_id: UUID) -> ExamWindow:
+async def end_exam(exam_id: UUID, db: DbSession, principal: Staff) -> ExamWindow:
     """Closes the exam early. Enters ENDING and begins the sweep."""
-    return examples.EXAM_WINDOW
+    return commands.end_exam(
+        db, exam_id, actor_id=UUID(principal.subject_id), actor_label="Exam Cell"
+    )
 
 
 @router.post("/{exam_id}/cancel", response_model=ExamSummary, responses=ILLEGAL_TRANSITION, operation_id="cancelExam")
-async def cancel_exam(exam_id: UUID, payload: ExamCancelRequest) -> ExamSummary:
+async def cancel_exam(
+    exam_id: UUID, payload: ExamCancelRequest, db: DbSession, principal: Staff
+) -> ExamSummary:
     """Requires a reason, which is written to the audit trail as CRITICAL."""
-    return examples.EXAM_SUMMARY
+    return commands.cancel_exam(
+        db, exam_id, payload.reason, actor_id=UUID(principal.subject_id), actor_label="Exam Cell"
+    )
 
 
 @router.get("/{exam_id}/sessions", response_model=list[SessionRow], operation_id="listExamSessions")
@@ -138,6 +163,10 @@ async def get_exam_results(exam_id: UUID, db: DbSession, _: Staff) -> ResultsPag
 
 
 @router.post("/{exam_id}/results/publish", response_model=ResultsPage, operation_id="publishExamResults")
-async def publish_exam_results(exam_id: UUID, payload: PublishResultsRequest) -> ResultsPage:
+async def publish_exam_results(
+    exam_id: UUID, payload: PublishResultsRequest, db: DbSession, principal: Staff
+) -> ResultsPage:
     """Releases scores to candidates by setting ``published_at``."""
-    return examples.RESULTS
+    return commands.publish_results(
+        db, exam_id, payload.published, actor_id=UUID(principal.subject_id), actor_label="Exam Cell"
+    )

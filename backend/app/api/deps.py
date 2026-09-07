@@ -14,6 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.security import TokenError, decode_token
+from app.db.models import User
 from app.db.session import get_db
 from app.schemas.auth import Principal
 from app.schemas.enums import Role, SubjectType
@@ -59,22 +60,38 @@ CurrentPrincipal = Annotated[Principal, Depends(get_principal)]
 def require_roles(*allowed: Role):
     """Guard a route to specific human roles.
 
-    Machines are refused unconditionally here: a workstation is not a person
-    and must never reach a management endpoint, whatever role claim it carries.
+    Machines are refused unconditionally: a workstation is not a person and must
+    never reach a management endpoint, whatever claim it carries.
+
+    The user is also re-read from the database rather than trusted from the
+    token alone. A token outlives the row it names, so a deleted or disabled
+    account would otherwise keep working until expiry — and a role revoked
+    mid-session would not take effect. The database is authoritative.
     """
 
-    def dependency(principal: CurrentPrincipal) -> Principal:
+    def dependency(principal: CurrentPrincipal, db: DbSession) -> Principal:
         if principal.subject_type is not SubjectType.USER:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This endpoint is not available to lab clients",
             )
-        if principal.role not in allowed:
+
+        try:
+            subject_id = UUID(principal.subject_id)
+        except ValueError as exc:
+            raise _unauthorized("Malformed token subject") from exc
+
+        user = db.get(User, subject_id)
+        if user is None or not user.is_active:
+            raise _unauthorized("This account no longer exists or is disabled")
+
+        if user.role not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your role does not permit this action",
             )
-        return principal
+        # Return the role the database believes, not the one the token asserts.
+        return principal.model_copy(update={"role": user.role})
 
     return dependency
 

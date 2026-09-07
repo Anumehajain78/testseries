@@ -5,6 +5,7 @@ import type {
   ComputerDto,
   ExamDetailDto,
   ExamSummaryDto,
+  ExamWindowDto,
   LabDto,
   ResultsPageDto,
   SessionRowDto,
@@ -13,12 +14,11 @@ import type {
 } from "./contract";
 
 // ---------------------------------------------------------------------------
-// HTTP read client
+// HTTP client
 //
-// Reads only. Writes still go through the mock implementation until step 05,
-// which is why this module exports a loader rather than an ExamApi: the goal of
-// this step is that every admin screen renders from Postgres, without those
-// screens having to change.
+// Reads assemble one snapshot the existing screens consume synchronously;
+// writes go straight to the API and then reload that snapshot, so a transition
+// the server refuses never appears to have happened locally.
 //
 // The loader assembles one ExamState from several endpoints. That is a bridge,
 // not the destination — per-screen queries with their own loading and error
@@ -54,20 +54,62 @@ export function storeToken(token: string | null): void {
   }
 }
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = readToken();
   const response = await fetch(`${BASE_URL}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    ...init,
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     cache: "no-store",
   });
   if (!response.ok) {
     // 401 means the token is missing or expired; the caller clears it and
     // re-prompts rather than retrying into a loop.
-    const detail = await response.text().catch(() => "");
-    throw new ApiError(response.status, detail || response.statusText);
+    throw new ApiError(response.status, await describe(response));
   }
-  return (await response.json()) as T;
+  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
+
+/**
+ * Turn an error body into something worth showing a person.
+ *
+ * The server answers a refused transition with both states and a message; a
+ * validation failure answers with FastAPI's array. Either beats "Bad Request".
+ */
+async function describe(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+    const detail = body?.detail;
+    if (typeof detail === "string") return detail;
+    if (detail?.message) return detail.message;
+    if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
+  } catch {
+    // fall through to the status text
+  }
+  return response.statusText || `Request failed (${response.status})`;
+}
+
+// ---------------------------------------------------------------------------
+// Writes
+//
+// Each returns the server's answer; the caller reloads the snapshot afterwards.
+// ---------------------------------------------------------------------------
+
+const post = <T>(path: string, body?: unknown) =>
+  request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+
+export const writes = {
+  createExam: (body: unknown) => post<ExamDetailDto>("/exams", body),
+  scheduleExam: (examId: string) => post<ExamDetailDto>(`/exams/${examId}/schedule`, {}),
+  startExam: (examId: string, idempotencyKey: string) =>
+    post<ExamWindowDto>(`/exams/${examId}/start`, { idempotencyKey }),
+  endExam: (examId: string) => post<ExamWindowDto>(`/exams/${examId}/end`, {}),
+  cancelExam: (examId: string, reason: string) => post(`/exams/${examId}/cancel`, { reason }),
+  publishResults: (examId: string, published: boolean) =>
+    post<ResultsPageDto>(`/exams/${examId}/results/publish`, { published }),
+};
 
 export async function signIn(email: string, password: string): Promise<TokenPairDto> {
   const response = await fetch(`${BASE_URL}/auth/login`, {

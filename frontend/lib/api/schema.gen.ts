@@ -179,6 +179,9 @@ export interface paths {
         /**
          * Create Exam
          * @description Creates the exam as a DRAFT.
+         *
+         *     Questions may be referenced from the bank or authored inline; either way
+         *     they end up in the bank, so a paper written here is reusable afterwards.
          */
         post: operations["createExam"];
         delete?: never;
@@ -910,6 +913,8 @@ export interface components {
             labId: string;
             /** Questionids */
             questionIds?: string[];
+            /** Questions */
+            questions?: components["schemas"]["QuestionIn"][];
             /**
              * Scheduledat
              * Format: date-time
@@ -1389,6 +1394,16 @@ export interface components {
             /** Options */
             options?: number[];
         };
+        /** OptionIn */
+        OptionIn: {
+            /** Body */
+            body: string;
+            /**
+             * Iscorrect
+             * @default false
+             */
+            isCorrect: boolean;
+        };
         /**
          * OptionOut
          * @description Faculty-facing option. Carries the answer key.
@@ -1462,6 +1477,24 @@ export interface components {
         PublishResultsRequest: {
             /** Published */
             published: boolean;
+        };
+        /**
+         * QuestionIn
+         * @description Authoring payload. Faculty scope only.
+         */
+        QuestionIn: {
+            /** Course */
+            course?: string | null;
+            /** Marks */
+            marks: number;
+            /**
+             * Options
+             * @description Empty for text questions; at least two entries otherwise.
+             */
+            options?: components["schemas"]["OptionIn"][];
+            /** Prompt */
+            prompt: string;
+            type: components["schemas"]["QuestionType"];
         };
         /**
          * QuestionOut

@@ -81,14 +81,34 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [attempt]);
 
-  const createTest = useCallback(async (input: NewTestInput) => (await api.createExam(input)).examId, []);
-  const scheduleExam = useCallback((testId: string) => api.scheduleExam(testId), []);
-  const startExam = useCallback((testId: string) => api.startExam(testId), []);
-  const answerQuestion = useCallback((testId: string, questionId: string, value: AnswerValue) => api.saveAnswer(testId, questionId, value), []);
-  const flagQuestion = useCallback((testId: string, questionId: string) => api.toggleFlag(testId, questionId), []);
-  const submitExam = useCallback(async (testId: string, mode: "manual" | "automatic" = "manual") => { await api.submitExam(testId, mode); }, []);
-  const setMockResultMode = useCallback((enabled: boolean) => api.setResultsPublished(enabled), []);
-  const resetDemo = useCallback(() => api.resetDemoData(), []);
+  // A write the server refuses must say so. Silently doing nothing is the
+  // worst possible behaviour in an exam hall: an invigilator presses Start,
+  // sees no change, and has no idea whether the room is running.
+  const guard = useCallback(async <T,>(action: () => Promise<T>): Promise<T> => {
+    try {
+      return await action();
+    } catch (cause) {
+      examStore.mutate((previous) => ({
+        ...previous,
+        toasts: [{
+          id: `err-${Date.now()}`,
+          title: "That did not go through",
+          message: cause instanceof Error ? cause.message : "The examination server refused the request.",
+          tone: "warning" as const,
+        }],
+      }));
+      throw cause;
+    }
+  }, []);
+
+  const createTest = useCallback(async (input: NewTestInput) => (await guard(() => api.createExam(input))).examId, [guard]);
+  const scheduleExam = useCallback((testId: string) => guard(() => api.scheduleExam(testId)), [guard]);
+  const startExam = useCallback((testId: string) => guard(() => api.startExam(testId)), [guard]);
+  const answerQuestion = useCallback((testId: string, questionId: string, value: AnswerValue) => guard(() => api.saveAnswer(testId, questionId, value)), [guard]);
+  const flagQuestion = useCallback((testId: string, questionId: string) => guard(() => api.toggleFlag(testId, questionId)), [guard]);
+  const submitExam = useCallback(async (testId: string, mode: "manual" | "automatic" = "manual") => { await guard(() => api.submitExam(testId, mode)); }, [guard]);
+  const setMockResultMode = useCallback((enabled: boolean) => guard(() => api.setResultsPublished(enabled)), [guard]);
+  const resetDemo = useCallback(() => guard(() => api.resetDemoData()), [guard]);
 
   const dismissToast = useCallback((id: string) => {
     examStore.mutate((previous) => ({ ...previous, toasts: previous.toasts.filter((toast) => toast.id !== id) }));

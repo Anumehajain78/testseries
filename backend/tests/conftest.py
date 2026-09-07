@@ -1,0 +1,71 @@
+"""Test database isolation.
+
+The lifecycle tests create exams, schedule them and start them. Run against the
+development database they leave dozens of probe rows behind and quietly corrupt
+the world you are trying to look at in the browser — which is exactly what
+happened before this file existed.
+
+So the suite gets its own database, created and dropped around the session.
+The environment variable is set before any application module is imported,
+because the engine is built from settings at import time.
+"""
+
+import os
+from urllib.parse import urlparse, urlunparse
+
+import pytest
+from sqlalchemy import create_engine, text
+
+TEST_DB_NAME = "exam_control_test"
+
+
+def _admin_url(url: str) -> str:
+    """The same server and driver, but the maintenance database — you cannot
+    drop a database while connected to it."""
+    parts = urlparse(url)
+    return urlunparse(parts._replace(path="/postgres"))
+
+
+def _test_url(url: str) -> str:
+    parts = urlparse(url)
+    return urlunparse(parts._replace(path=f"/{TEST_DB_NAME}"))
+
+
+# Whatever the developer's database is, the tests use a sibling of it.
+_source = os.environ.get(
+    "EXAM_DATABASE_URL",
+    "postgresql+psycopg://exam:exam_local_dev@localhost:5433/exam_control",
+)
+os.environ["EXAM_DATABASE_URL"] = _test_url(_source)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def test_database():
+    """Create the test database, populate it, and drop it afterwards."""
+    admin = create_engine(_admin_url(_source), isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as connection:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB_NAME}" WITH (FORCE)'))
+            connection.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
+    except Exception as exc:  # pragma: no cover - environment problem, not a test failure
+        pytest.skip(f"cannot reach Postgres to build a test database: {exc}")
+
+    # Imported only now, so the engine picks up the overridden URL.
+    from app.db.base import Base
+    from app.db.session import engine
+    import app.db.models  # noqa: F401  (registers the tables)
+
+    Base.metadata.create_all(engine)
+
+    from app.db.seed import seed
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as db:
+        seed(db)
+
+    yield
+
+    engine.dispose()
+    with admin.connect() as connection:
+        connection.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB_NAME}" WITH (FORCE)'))
+    admin.dispose()

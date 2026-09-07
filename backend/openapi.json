@@ -466,6 +466,13 @@
             "title": "Questionids",
             "type": "array"
           },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionIn"
+            },
+            "title": "Questions",
+            "type": "array"
+          },
           "scheduledAt": {
             "format": "date-time",
             "title": "Scheduledat",
@@ -1503,6 +1510,26 @@
         "title": "MultipleAnswer",
         "type": "object"
       },
+      "OptionIn": {
+        "properties": {
+          "body": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "isCorrect": {
+            "default": false,
+            "title": "Iscorrect",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "OptionIn",
+        "type": "object"
+      },
       "OptionOut": {
         "description": "Faculty-facing option. Carries the answer key.",
         "properties": {
@@ -1671,6 +1698,52 @@
           "published"
         ],
         "title": "PublishResultsRequest",
+        "type": "object"
+      },
+      "QuestionIn": {
+        "description": "Authoring payload. Faculty scope only.",
+        "properties": {
+          "course": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Course"
+          },
+          "marks": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Marks",
+            "type": "integer"
+          },
+          "options": {
+            "description": "Empty for text questions; at least two entries otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/OptionIn"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "prompt": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/QuestionType"
+          }
+        },
+        "required": [
+          "type",
+          "prompt",
+          "marks"
+        ],
+        "title": "QuestionIn",
         "type": "object"
       },
       "QuestionOut": {
@@ -3557,7 +3630,7 @@
         ]
       },
       "post": {
-        "description": "Creates the exam as a DRAFT.",
+        "description": "Creates the exam as a DRAFT.\n\nQuestions may be referenced from the bank or authored inline; either way\nthey end up in the bank, so a paper written here is reusable afterwards.",
         "operationId": "createExam",
         "requestBody": {
           "content": {
@@ -3591,6 +3664,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Create Exam",
         "tags": [
           "exams"
@@ -3702,6 +3780,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Update Exam",
         "tags": [
           "exams"
@@ -3766,6 +3849,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Cancel Exam",
         "tags": [
           "exams"
@@ -3820,6 +3908,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "End Exam",
         "tags": [
           "exams"
@@ -3972,6 +4065,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Publish Exam Results",
         "tags": [
           "exams"
@@ -4026,6 +4124,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Schedule Exam",
         "tags": [
           "exams"
@@ -4143,6 +4246,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Start Exam",
         "tags": [
           "exams"
