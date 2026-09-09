@@ -112,9 +112,40 @@ class TestScoring:
         assert score_question(q, None, {"kind": "multiple", "options": [0]}) == 0.0
         assert score_question(q, None, {"kind": "multiple", "options": [0, 1, 2]}) == 0.0
 
-    def test_text_answers_await_a_human(self):
+    def test_an_unmarked_written_answer_scores_nothing_yet(self):
         q = question(correct=set(), count=0, marks=5, qtype=QuestionType.TEXT)
         assert score_question(q, None, {"kind": "text", "text": "anything"}) == 0.0
+
+    def test_a_marked_written_answer_scores_what_it_was_given(self):
+        q = question(correct=set(), count=0, marks=5, qtype=QuestionType.TEXT)
+        assert score_question(q, None, {"kind": "text", "text": "a good answer"}, 4.0) == 4.0
+
+    def test_an_unread_written_answer_is_counted_as_pending(self):
+        """A total that treats unread work as nought reads as a finished
+        result. The count is how the screens avoid saying that."""
+        written = question(correct=set(), count=0, marks=5, qtype=QuestionType.TEXT)
+        bank = {str(written.id): written}
+        given, available, pending = score_paper(
+            bank, [str(written.id)], None, {str(written.id): {"kind": "text", "text": "words"}}
+        )
+        assert (given, available, pending) == (0.0, 5.0, 1)
+
+    def test_marking_it_clears_the_pending_count(self):
+        written = question(correct=set(), count=0, marks=5, qtype=QuestionType.TEXT)
+        bank = {str(written.id): written}
+        given, available, pending = score_paper(
+            bank, [str(written.id)], None,
+            {str(written.id): {"kind": "text", "text": "words"}},
+            {str(written.id): 3.5},
+        )
+        assert (given, available, pending) == (3.5, 5.0, 0)
+
+    def test_an_unanswered_written_question_is_not_pending(self):
+        """Nobody needs to read a blank."""
+        written = question(correct=set(), count=0, marks=5, qtype=QuestionType.TEXT)
+        bank = {str(written.id): written}
+        _, _, pending = score_paper(bank, [str(written.id)], None, {})
+        assert pending == 0
 
     def test_an_unanswered_question_scores_nothing(self):
         assert score_question(question(correct={0}), None, None) == 0.0
@@ -124,15 +155,15 @@ class TestScoring:
         each is scored against their own total rather than the whole bank."""
         a, b, c = question(correct={0}, marks=2), question(correct={0}, marks=3), question(correct={0}, marks=5)
         bank = {str(q.id): q for q in (a, b, c)}
-        awarded, available = score_paper(
+        awarded, available, pending = score_paper(
             bank, [str(a.id), str(b.id)], None, {str(a.id): {"kind": "single", "option": 0}}
         )
-        assert (awarded, available) == (2.0, 5.0)
+        assert (awarded, available, pending) == (2.0, 5.0, 0)
 
     def test_a_score_can_never_exceed_the_available_marks(self):
         a = question(correct={0}, marks=2)
         bank = {str(a.id): a}
-        awarded, available = score_paper(
+        awarded, available, _ = score_paper(
             bank, [str(a.id)], None, {str(a.id): {"kind": "single", "option": 0}}
         )
         assert awarded <= available

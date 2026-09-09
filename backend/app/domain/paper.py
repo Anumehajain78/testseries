@@ -109,6 +109,7 @@ def score_question(
     question: AuthoredQuestion,
     order: list[int] | None,
     value: dict | None,
+    awarded: float | None = None,
 ) -> float:
     """Marks awarded for one answer.
 
@@ -139,7 +140,11 @@ def score_question(
         chosen = to_authored_positions(order, [o for o in options if isinstance(o, int)])
         return float(question.marks) if chosen == correct and correct else 0.0
 
-    # Text: awaiting a human.
+    # Written answers are scored by a person. Until someone has read it the
+    # award is None, which is not the same as nought — see `score_paper`.
+    if kind == "text":
+        return float(awarded) if awarded is not None else 0.0
+
     return 0.0
 
 
@@ -148,22 +153,32 @@ def score_paper(
     question_order: list[str] | None,
     option_order: dict[str, list[int]] | None,
     answers: dict[str, dict],
-) -> tuple[float, float]:
-    """Total awarded and total available for one candidate's paper.
+    awards: dict[str, float | None] | None = None,
+) -> tuple[float, float, int]:
+    """Total awarded, total available, and how many answers still need a human.
 
     The maximum is the marks on *their* paper, not the whole bank — with
     ``questions_per_student`` two candidates can legitimately sit different
     numbers of questions, and each must be scored out of their own total.
+
+    The third number is why this returns three: a written answer nobody has
+    read yet contributes nothing, and a total that quietly treats it as zero
+    would read as a finished result. Callers use the count to say "marking
+    pending" rather than publishing a score that is not yet true.
     """
     ids = question_order or list(questions)
-    awarded = 0.0
+    given = 0.0
     available = 0.0
+    unmarked = 0
     for question_id in ids:
         question = questions.get(question_id)
         if question is None:
             continue
         available += float(question.marks)
-        awarded += score_question(
-            question, (option_order or {}).get(question_id), answers.get(question_id)
+        award = (awards or {}).get(question_id)
+        if question.type is QuestionType.TEXT and answers.get(question_id) and award is None:
+            unmarked += 1
+        given += score_question(
+            question, (option_order or {}).get(question_id), answers.get(question_id), award
         )
-    return awarded, available
+    return given, available, unmarked

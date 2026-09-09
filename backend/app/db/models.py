@@ -409,6 +409,12 @@ class Answer(Base):
     #: Client-side monotonic counter. Lets a stale write arriving late after a
     #: reconnect be discarded without trusting either clock.
     client_seq: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    #: Marks a person awarded a written answer. Null means nobody has read it
+    #: yet — which is different from having read it and given nothing, and the
+    #: results must not present the two the same way.
+    awarded_marks: Mapped[float | None] = mapped_column(Numeric(6, 2))
+    marked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    marked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     saved_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -430,6 +436,12 @@ class Result(Base):
     )
     score: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False)
     max_score: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False)
+    #: Written answers still waiting for a person. While this is above zero the
+    #: score is a running total, not a final one, and the results screen says
+    #: so rather than presenting it as settled.
+    pending_marking: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
     graded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

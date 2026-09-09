@@ -336,3 +336,104 @@ class TestEditingADraft:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 403
+
+
+class TestMarkingWrittenAnswers:
+    """Written answers are read by a person.
+
+    Until this existed a candidate could write a perfect answer and score zero
+    with no way to correct it — so these assert that a mark lands, that it
+    re-grades the paper, and that "not read yet" is never presented as "nought".
+    """
+
+    @pytest.fixture
+    def written(self, staff, world) -> dict | None:
+        """A submitted written answer from the seeded completed exam."""
+        exams = client.get(f"{API}/exams?limit=200", headers=staff).json()["items"]
+        for exam in exams:
+            items = client.get(f"{API}/exams/{exam['id']}/marking", headers=staff)
+            if items.status_code == 200 and items.json():
+                return {"exam": exam, "items": items.json()}
+        return None
+
+    def test_written_answers_are_listed_for_marking(self, staff, written):
+        if written is None:
+            pytest.skip("no written answers in the seed")
+        item = written["items"][0]
+        assert item["prompt"]
+        assert item["studentName"]
+        assert item["marks"] > 0
+
+    def test_awarding_marks_updates_the_paper(self, staff, written):
+        if written is None:
+            pytest.skip("no written answers in the seed")
+        exam_id, item = written["exam"]["id"], written["items"][0]
+
+        before = client.get(f"{API}/exams/{exam_id}/results", headers=staff).json()
+        before_row = next(r for r in before["rows"] if r["sessionId"] == item["sessionId"])
+
+        award = client.put(
+            f"{API}/exams/{exam_id}/marking/{item['sessionId']}/{item['questionId']}",
+            json={"marks": item["marks"]},
+            headers=staff,
+        )
+        assert award.status_code == 200, award.text
+        assert award.json()["awardedMarks"] == item["marks"]
+
+        after = client.get(f"{API}/exams/{exam_id}/results", headers=staff).json()
+        after_row = next(r for r in after["rows"] if r["sessionId"] == item["sessionId"])
+        # Published or not, the stored total moved by exactly the award.
+        if before_row["score"] is not None:
+            assert after_row["score"] == before_row["score"] + item["marks"]
+        assert after_row["pendingMarking"] < before_row["pendingMarking"] or before_row["pendingMarking"] == 0
+
+    def test_marks_beyond_what_the_question_is_worth_are_refused(self, staff, written):
+        if written is None:
+            pytest.skip("no written answers in the seed")
+        exam_id, item = written["exam"]["id"], written["items"][0]
+        response = client.put(
+            f"{API}/exams/{exam_id}/marking/{item['sessionId']}/{item['questionId']}",
+            json={"marks": item["marks"] + 1},
+            headers=staff,
+        )
+        assert response.status_code == 422
+
+    def test_negative_marks_are_refused(self, staff, written):
+        if written is None:
+            pytest.skip("no written answers in the seed")
+        exam_id, item = written["exam"]["id"], written["items"][0]
+        response = client.put(
+            f"{API}/exams/{exam_id}/marking/{item['sessionId']}/{item['questionId']}",
+            json={"marks": -1},
+            headers=staff,
+        )
+        assert response.status_code == 422
+
+    def test_a_candidate_cannot_mark_their_own_work(self, staff, world, written):
+        if written is None:
+            pytest.skip("no written answers in the seed")
+        exam_id, item = written["exam"]["id"], written["items"][0]
+        token = client.post(
+            f"{API}/auth/login",
+            json={"email": world["students"][0]["email"], "password": "examcontrol"},
+        ).json()["accessToken"]
+        response = client.put(
+            f"{API}/exams/{exam_id}/marking/{item['sessionId']}/{item['questionId']}",
+            json={"marks": 1},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+    def test_a_candidate_cannot_read_the_marking_queue(self, world, written):
+        """It shows other candidates' work alongside their names."""
+        if written is None:
+            pytest.skip("no written answers in the seed")
+        token = client.post(
+            f"{API}/auth/login",
+            json={"email": world["students"][0]["email"], "password": "examcontrol"},
+        ).json()["accessToken"]
+        response = client.get(
+            f"{API}/exams/{written['exam']['id']}/marking",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403

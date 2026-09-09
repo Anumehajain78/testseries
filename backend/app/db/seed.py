@@ -35,6 +35,7 @@ from app.db.models import (
     User,
 )
 from app.db.session import SessionLocal
+from app.services.sessions import grade
 from app.schemas.enums import (
     AuditCategory,
     AuditEventType,
@@ -378,6 +379,7 @@ def seed(db: Session) -> dict[str, int]:
     scores = [48, 60, 35, 42, 39, 45, 28, 51, 47, 32, 40, 53, 37, 44, 49, 30, 34, 52, 41, 38,
               46, 29, 43, 36, 50, 33, 58, 31]
     finished = now - timedelta(days=45) + timedelta(minutes=70)
+    graded: list[ExamSession] = []
     for offset, (student, score) in enumerate(zip(ds_roster, scores)):
         mode = SubmitMode.AUTO if offset % 7 == 0 else SubmitMode.MANUAL
         session = ExamSession(
@@ -390,7 +392,47 @@ def seed(db: Session) -> dict[str, int]:
         )
         db.add(session)
         db.flush()
-        db.add(Result(session_id=session.id, score=min(score, db_total), max_score=db_total))
+
+        # Real answers, not just a total. Without them the marking queue is
+        # empty and the written-answer path cannot be seen at all.
+        pending = 0
+        for position, (qtype, _prompt, options, correct, marks) in enumerate(DB_QUESTIONS):
+            question = db_q[position]
+            if qtype is QuestionType.TEXT:
+                # Every third script is left unread, so the marking queue has
+                # something in it and "awaiting marking" is visible.
+                marked = offset % 3 != 0
+                db.add(Answer(
+                    session_id=session.id,
+                    question_id=question.id,
+                    value={"kind": "text", "text":
+                           "A clustered index stores the rows in key order, so a range scan "
+                           "reads them sequentially instead of chasing pointers."},
+                    awarded_marks=(marks if offset % 4 else marks / 2) if marked else None,
+                    marked_by=anita.user_id if marked else None,
+                    marked_at=finished if marked else None,
+                ))
+                if not marked:
+                    pending += 1
+            elif qtype is QuestionType.MULTIPLE:
+                db.add(Answer(
+                    session_id=session.id, question_id=question.id,
+                    value={"kind": "multiple", "options": correct if offset % 2 else correct[:1]},
+                ))
+            else:
+                db.add(Answer(
+                    session_id=session.id, question_id=question.id,
+                    value={"kind": "single", "option": correct[0] if offset % 3 else 0},
+                ))
+
+        graded.append(session)
+
+    # Score the completed exam with the real grader rather than inventing
+    # totals. A seeded number that its own answers would never produce is
+    # fiction on the results screen — and was how a 63/60 once got in.
+    db.flush()
+    for session in graded:
+        grade(db, session)
 
     # -- audit ---------------------------------------------------------------
     trail = [

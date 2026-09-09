@@ -7,6 +7,7 @@ import type {
   ExamSummaryDto,
   ExamWindowDto,
   LabDto,
+  MarkingItemDto,
   SessionPaperDto,
   SessionStateDto,
   SubmissionReceiptDto,
@@ -200,6 +201,15 @@ export const candidateWrites = {
   toggleFlag: (sessionId: string, questionId: string) =>
     put(`/sessions/${sessionId}/flags/${questionId}`, {}),
   submit: (sessionId: string) => post<SubmissionReceiptDto>(`/sessions/${sessionId}/submit`, {}),
+};
+
+export const marking = {
+  list: (examId: string) => request<MarkingItemDto[]>(`/exams/${examId}/marking`),
+  award: (examId: string, sessionId: string, questionId: string, marks: number) =>
+    request<MarkingItemDto>(`/exams/${examId}/marking/${sessionId}/${questionId}`, {
+      method: "PUT",
+      body: JSON.stringify({ marks }),
+    }),
 };
 
 export const writes = {

@@ -29,6 +29,8 @@ class ResultRow(Schema):
     time_taken_seconds: int | None = Field(default=None, alias="timeTakenSeconds")
     mode: SubmitMode
     submitted_at: datetime = Field(alias="submittedAt")
+    #: Written answers on this paper still awaiting a marker.
+    pending_marking: int = Field(default=0, alias="pendingMarking")
 
     @model_validator(mode="after")
     def _score_within_bounds(self) -> "ResultRow":
@@ -44,6 +46,9 @@ class ResultRow(Schema):
 class ResultStats(Schema):
     submitted: int
     graded: int
+    #: Written answers across the cohort that nobody has read yet. While this
+    #: is above zero the averages below are running totals, not final ones.
+    pending_marking: int = Field(default=0, alias="pendingMarking")
     average_percentage: float | None = Field(default=None, alias="averagePercentage")
     highest_percentage: float | None = Field(default=None, alias="highestPercentage")
 

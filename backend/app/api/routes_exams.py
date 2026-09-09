@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import DbSession, Staff
-from app.services import commands, queries
+from app.services import commands, queries, sessions as session_service
 from app.schemas.common import ErrorDetail, Page
 from app.schemas.enums import ExamStatus
 from app.schemas.exam import (
@@ -23,7 +23,7 @@ from app.schemas.exam import (
     ExamWindow,
 )
 from app.schemas.result import PublishResultsRequest, ResultsPage
-from app.schemas.session import MonitorSnapshot, SessionRow
+from app.schemas.session import AwardMarksRequest, MarkingItem, MonitorSnapshot, SessionRow
 
 router = APIRouter(prefix="/exams", tags=["exams"])
 
@@ -160,6 +160,34 @@ async def get_exam_results(exam_id: UUID, db: DbSession, _: Staff) -> ResultsPag
     if results is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment not found")
     return results
+
+
+@router.get("/{exam_id}/marking", response_model=list[MarkingItem], operation_id="listForMarking")
+async def list_for_marking(exam_id: UUID, db: DbSession, _: Staff) -> list[MarkingItem]:
+    """Written answers on this exam, for a person to read and mark.
+
+    Staff only — it shows candidates' work alongside their names.
+    """
+    return session_service.list_for_marking(db, exam_id)
+
+
+@router.put(
+    "/{exam_id}/marking/{session_id}/{question_id}",
+    response_model=MarkingItem,
+    operation_id="awardMarks",
+)
+async def award_marks(
+    exam_id: UUID,
+    session_id: UUID,
+    question_id: UUID,
+    payload: AwardMarksRequest,
+    db: DbSession,
+    principal: Staff,
+) -> MarkingItem:
+    """Award marks to one written answer and re-grade that paper."""
+    return session_service.award_marks(
+        db, session_id, question_id, payload.marks, marked_by=UUID(principal.subject_id)
+    )
 
 
 @router.post("/{exam_id}/results/publish", response_model=ResultsPage, operation_id="publishExamResults")

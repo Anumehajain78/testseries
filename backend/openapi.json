@@ -181,6 +181,20 @@
         "title": "AuditSeverity",
         "type": "string"
       },
+      "AwardMarksRequest": {
+        "properties": {
+          "marks": {
+            "minimum": 0.0,
+            "title": "Marks",
+            "type": "number"
+          }
+        },
+        "required": [
+          "marks"
+        ],
+        "title": "AwardMarksRequest",
+        "type": "object"
+      },
       "CheckInRequest": {
         "description": "Sent by the candidate's client on entering the waiting room.\n\nThe machine identifier is reported by the lab client, not typed by the\ncandidate - binding a student to a workstation is the client's job.",
         "properties": {
@@ -1466,6 +1480,76 @@
         "title": "MachineTokenRequest",
         "type": "object"
       },
+      "MarkingItem": {
+        "description": "One written answer waiting for, or already given, a mark.\n\n``awarded_marks`` is null until somebody has read it \u2014 deliberately\ndistinct from a mark of zero, which is a judgement someone made.",
+        "properties": {
+          "awardedMarks": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awardedmarks"
+          },
+          "markedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markedat"
+          },
+          "marks": {
+            "description": "What this question is worth.",
+            "title": "Marks",
+            "type": "integer"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "questionId": {
+            "format": "uuid",
+            "title": "Questionid",
+            "type": "string"
+          },
+          "registrationNo": {
+            "title": "Registrationno",
+            "type": "string"
+          },
+          "response": {
+            "title": "Response",
+            "type": "string"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "studentName": {
+            "title": "Studentname",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "questionId",
+          "studentName",
+          "registrationNo",
+          "prompt",
+          "marks",
+          "response"
+        ],
+        "title": "MarkingItem",
+        "type": "object"
+      },
       "MonitorSnapshot": {
         "properties": {
           "examId": {
@@ -1893,6 +1977,11 @@
           "mode": {
             "$ref": "#/components/schemas/SubmitMode"
           },
+          "pendingMarking": {
+            "default": 0,
+            "title": "Pendingmarking",
+            "type": "integer"
+          },
           "percentage": {
             "anyOf": [
               {
@@ -1995,6 +2084,11 @@
               }
             ],
             "title": "Highestpercentage"
+          },
+          "pendingMarking": {
+            "default": 0,
+            "title": "Pendingmarking",
+            "type": "integer"
           },
           "submitted": {
             "title": "Submitted",
@@ -3971,6 +4065,138 @@
           }
         ],
         "summary": "End Exam",
+        "tags": [
+          "exams"
+        ]
+      }
+    },
+    "/api/v1/exams/{exam_id}/marking": {
+      "get": {
+        "description": "Written answers on this exam, for a person to read and mark.\n\nStaff only \u2014 it shows candidates' work alongside their names.",
+        "operationId": "listForMarking",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exam_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Exam Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MarkingItem"
+                  },
+                  "title": "Response Listformarking",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List For Marking",
+        "tags": [
+          "exams"
+        ]
+      }
+    },
+    "/api/v1/exams/{exam_id}/marking/{session_id}/{question_id}": {
+      "put": {
+        "description": "Award marks to one written answer and re-grade that paper.",
+        "operationId": "awardMarks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exam_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Exam Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Question Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwardMarksRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkingItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Award Marks",
         "tags": [
           "exams"
         ]

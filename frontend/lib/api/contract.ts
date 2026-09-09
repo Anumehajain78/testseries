@@ -33,6 +33,7 @@ export type LabDto = Schemas["LabOut"];
 export type ComputerDto = Schemas["ComputerOut"];
 export type ResultsPageDto = Schemas["ResultsPage"];
 export type AuditEventDto = Schemas["AuditEventOut"];
+export type MarkingItemDto = Schemas["MarkingItem"];
 export type TokenPairDto = Schemas["TokenPair"];
 export type AnswerValueDto = Schemas["SaveAnswerRequest"]["value"];
 

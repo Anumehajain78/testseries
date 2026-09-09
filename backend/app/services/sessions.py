@@ -36,6 +36,7 @@ from app.schemas.enums import (
     AuditEventType,
     AuditSeverity,
     ExamStatus,
+    QuestionType,
     SessionStatus,
     SubjectType,
     SubmitMode,
@@ -44,6 +45,7 @@ from app.schemas.common import AnswerValue
 from app.schemas.exam import ExamConfig
 from app.schemas.question import StudentOptionOut, StudentQuestionOut
 from app.schemas.session import (
+    MarkingItem,
     SaveAnswerResponse,
     SessionPaper,
     SessionState,
@@ -291,13 +293,20 @@ def grade(db: Session, session: ExamSession) -> Result:
 
     Runs server-side because that is where the answer key is, and because a
     score computed on the client is a score a candidate can choose.
+
+    Safe to run again: marking a written answer re-grades that paper, so the
+    stored result always reflects every award made so far.
     """
     authored = _authored(db, session.exam_id)
-    answers = {
-        str(a.question_id): a.value
-        for a in db.execute(select(Answer).where(Answer.session_id == session.id)).scalars()
+    rows = db.execute(select(Answer).where(Answer.session_id == session.id)).scalars().all()
+    answers = {str(a.question_id): a.value for a in rows}
+    awards = {
+        str(a.question_id): (float(a.awarded_marks) if a.awarded_marks is not None else None)
+        for a in rows
     }
-    awarded, available = score_paper(authored, session.question_order, session.option_order, answers)
+    awarded, available, pending = score_paper(
+        authored, session.question_order, session.option_order, answers, awards
+    )
 
     result = db.get(Result, session.id)
     if result is None:
@@ -305,6 +314,7 @@ def grade(db: Session, session: ExamSession) -> Result:
         db.add(result)
     else:
         result.score, result.max_score = awarded, available
+    result.pending_marking = pending
     return result
 
 
@@ -371,4 +381,104 @@ def _receipt(db: Session, session: ExamSession) -> SubmissionReceipt:
         answered_count=answered,
         question_count=total,
         flagged_count=sum(1 for a in answers if a.flagged),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Marking written answers
+# ---------------------------------------------------------------------------
+
+
+def list_for_marking(db: Session, exam_id: UUID) -> list[MarkingItem]:
+    """Every written answer on an exam, with whatever it has been given.
+
+    Candidate names are included because marking is done by a person who needs
+    to know whose work they are reading — this is not a candidate-facing view,
+    and it is behind the staff guard.
+    """
+    from app.db.models import Student, User
+
+    authored = _authored(db, exam_id)
+    written = {qid: q for qid, q in authored.items() if q.type is QuestionType.TEXT}
+    if not written:
+        return []
+
+    rows = db.execute(
+        select(Answer, ExamSession, User, Student)
+        .join(ExamSession, ExamSession.id == Answer.session_id)
+        .join(Student, Student.user_id == ExamSession.student_id)
+        .join(User, User.id == Student.user_id)
+        .where(
+            ExamSession.exam_id == exam_id,
+            Answer.question_id.in_([UUID(qid) for qid in written]),
+        )
+        .order_by(User.full_name)
+    ).all()
+
+    items: list[MarkingItem] = []
+    for answer, session, user, student in rows:
+        question = written[str(answer.question_id)]
+        items.append(
+            MarkingItem(
+                session_id=session.id,
+                question_id=answer.question_id,
+                student_name=user.full_name,
+                registration_no=student.registration_no,
+                prompt=question.prompt,
+                marks=question.marks,
+                response=(answer.value or {}).get("text", ""),
+                awarded_marks=float(answer.awarded_marks) if answer.awarded_marks is not None else None,
+                marked_at=answer.marked_at,
+            )
+        )
+    return items
+
+
+def award_marks(
+    db: Session,
+    session_id: UUID,
+    question_id: UUID,
+    marks: float,
+    *,
+    marked_by: UUID,
+) -> MarkingItem:
+    """Give a written answer its marks, then re-grade the paper.
+
+    Re-grading immediately means the results table never shows a stale total
+    while a marker works through a cohort.
+    """
+    answer = db.get(Answer, {"session_id": session_id, "question_id": question_id})
+    if answer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No answer to mark")
+
+    session = db.get(ExamSession, session_id)
+    authored = _authored(db, session.exam_id)
+    question = authored.get(str(question_id))
+    if question is None or question.type is not QuestionType.TEXT:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Only written answers are marked by hand; the rest are scored automatically.",
+        )
+    if marks < 0 or marks > question.marks:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"This question is worth {question.marks} marks.",
+        )
+
+    answer.awarded_marks = marks
+    answer.marked_by = marked_by
+    answer.marked_at = utcnow()
+    grade(db, session)
+    db.commit()
+
+    return MarkingItem(
+        session_id=session_id,
+        question_id=question_id,
+        student_name="",
+        registration_no="",
+        prompt=question.prompt,
+        marks=question.marks,
+        response=(answer.value or {}).get("text", ""),
+        awarded_marks=marks,
+        marked_at=answer.marked_at,
     )

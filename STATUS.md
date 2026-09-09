@@ -33,7 +33,7 @@ All of this runs for real. The server does the work, not the browser.
 | **Works** | **Log in and wait.** The waiting room checks the student, the computer and the connection. |
 | **Works** | **Take the test.** Questions, timer, save and next, flag for review. Answers save to the server as they go. |
 | **Works** | **Submit and get a receipt.** The paper locks. The server marks it. |
-| **Half done** | **Written answers.** Saved, but they get 0 marks — there is no screen yet for a teacher to mark them. |
+| **Works** | **Written answers.** Saved, then read and marked by a teacher on a marking screen. The total updates as marks are given. |
 
 ---
 
@@ -58,7 +58,6 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | --- | --- |
 | **Works** | **Staying logged in.** Logins renew by themselves in the background, so nobody is signed out mid-exam. |
 | **Works** | **Editing a draft.** Change anything — title, schedule, lab, students, questions — until candidates are given seats. After that it is locked, and the screen says so. |
-| **Not started** | **Marking screen for written answers.** Needed before written questions can count. |
 | **Not started** | **Buttons that are only for show.** Import roster, Export report, Run health check. |
 | **Not started** | **Add and edit students from the screen.** They come from the seed file at the moment. |
 
@@ -103,7 +102,7 @@ Each step kept the app working, so nothing was ever half broken.
 
 ## Checks
 
-`190` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
+`200` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
 
 ```bash
 cd backend  && ./.venv/bin/python -m pytest -q

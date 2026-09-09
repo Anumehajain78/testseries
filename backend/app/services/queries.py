@@ -419,12 +419,14 @@ def get_results(db: Session, exam_id: UUID) -> ResultsPage | None:
                 time_taken_seconds=taken,
                 mode=session.submit_mode,
                 submitted_at=session.submitted_at,
+                pending_marking=result.pending_marking or 0,
             )
         )
 
     stats = ResultStats(
         submitted=len(results),
         graded=len(results),
+        pending_marking=sum(row.pending_marking for row in results),
         average_percentage=round(sum(percentages) / len(percentages), 1) if percentages else None,
         highest_percentage=max(percentages) if percentages else None,
     )

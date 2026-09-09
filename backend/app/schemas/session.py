@@ -175,3 +175,25 @@ class SessionEventRequest(Schema):
     event: str
     occurred_at: datetime = Field(alias="occurredAt")
     detail: str | None = Field(default=None, max_length=1_000)
+
+
+class MarkingItem(Schema):
+    """One written answer waiting for, or already given, a mark.
+
+    ``awarded_marks`` is null until somebody has read it — deliberately
+    distinct from a mark of zero, which is a judgement someone made.
+    """
+
+    session_id: UUID = Field(alias="sessionId")
+    question_id: UUID = Field(alias="questionId")
+    student_name: str = Field(alias="studentName")
+    registration_no: str = Field(alias="registrationNo")
+    prompt: str
+    marks: int = Field(description="What this question is worth.")
+    response: str
+    awarded_marks: float | None = Field(default=None, alias="awardedMarks")
+    marked_at: datetime | None = Field(default=None, alias="markedAt")
+
+
+class AwardMarksRequest(Schema):
+    marks: float = Field(ge=0)

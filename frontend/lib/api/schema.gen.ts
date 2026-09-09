@@ -279,6 +279,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exams/{exam_id}/marking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List For Marking
+         * @description Written answers on this exam, for a person to read and mark.
+         *
+         *     Staff only — it shows candidates' work alongside their names.
+         */
+        get: operations["listForMarking"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exams/{exam_id}/marking/{session_id}/{question_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Award Marks
+         * @description Award marks to one written answer and re-grade that paper.
+         */
+        put: operations["awardMarks"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/exams/{exam_id}/monitor": {
         parameters: {
             query?: never;
@@ -827,6 +869,11 @@ export interface components {
          * @enum {string}
          */
         AuditSeverity: "INFO" | "WARNING" | "CRITICAL";
+        /** AwardMarksRequest */
+        AwardMarksRequest: {
+            /** Marks */
+            marks: number;
+        };
         /**
          * CheckInRequest
          * @description Sent by the candidate's client on entering the waiting room.
@@ -1442,6 +1489,42 @@ export interface components {
             /** Secret */
             secret: string;
         };
+        /**
+         * MarkingItem
+         * @description One written answer waiting for, or already given, a mark.
+         *
+         *     ``awarded_marks`` is null until somebody has read it — deliberately
+         *     distinct from a mark of zero, which is a judgement someone made.
+         */
+        MarkingItem: {
+            /** Awardedmarks */
+            awardedMarks?: number | null;
+            /** Markedat */
+            markedAt?: string | null;
+            /**
+             * Marks
+             * @description What this question is worth.
+             */
+            marks: number;
+            /** Prompt */
+            prompt: string;
+            /**
+             * Questionid
+             * Format: uuid
+             */
+            questionId: string;
+            /** Registrationno */
+            registrationNo: string;
+            /** Response */
+            response: string;
+            /**
+             * Sessionid
+             * Format: uuid
+             */
+            sessionId: string;
+            /** Studentname */
+            studentName: string;
+        };
         /** MonitorSnapshot */
         MonitorSnapshot: {
             /**
@@ -1641,6 +1724,11 @@ export interface components {
             /** Maxscore */
             maxScore: number;
             mode: components["schemas"]["SubmitMode"];
+            /**
+             * Pendingmarking
+             * @default 0
+             */
+            pendingMarking: number;
             /** Percentage */
             percentage?: number | null;
             /** Rank */
@@ -1677,6 +1765,11 @@ export interface components {
             graded: number;
             /** Highestpercentage */
             highestPercentage?: number | null;
+            /**
+             * Pendingmarking
+             * @default 0
+             */
+            pendingMarking: number;
             /** Submitted */
             submitted: number;
         };
@@ -2709,6 +2802,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listForMarking: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exam_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkingItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    awardMarks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exam_id: string;
+                session_id: string;
+                question_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AwardMarksRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkingItem"];
                 };
             };
             /** @description Validation Error */
