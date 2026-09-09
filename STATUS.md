@@ -55,13 +55,15 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 
 | | |
 | --- | --- |
-| **Fix soon** | **Login expires after 30 minutes.** No renewal yet, so a teacher can get logged out in the middle of a 90 minute exam. |
+| **Works** | **Staying logged in.** Logins renew by themselves in the background, so nobody is signed out mid-exam. |
 | **Half done** | **"Edit test" button does nothing.** The server side already works; only the button needs connecting. |
 | **Not started** | **Marking screen for written answers.** Needed before written questions can count. |
 | **Not started** | **Buttons that are only for show.** Import roster, Export report, Run health check. |
 | **Not started** | **Add and edit students from the screen.** They come from the seed file at the moment. |
 
-**One thing to know:** the app reloads all its data after every change. Fine with a few tests, slow with a few hundred. Worth tidying before the college actually uses it.
+**One thing to know about logins:** when a login is renewed, the old renewal token is not cancelled — it keeps working until it runs out on its own. Cancelling it needs a bit more work on the server. Worth doing before real exams.
+
+**One thing to know about speed:** the app reloads all its data after every change. Fine with a few tests, slow with a few hundred. Worth tidying before the college actually uses it.
 
 ---
 
@@ -80,10 +82,9 @@ Always planned for later. These are the difference between a working web app and
 
 ## What to do next
 
-1. **Keep people logged in.** Finish login renewal so nobody is kicked out mid-exam.
-2. **Connect the "Edit test" button.** The server part is done and tested.
-3. **Register lab computers and send real heartbeats.** A helper script currently pretends the computers are alive. Needed before the desktop app.
-4. **Build the desktop exam app.** The biggest remaining piece.
+1. **Connect the "Edit test" button.** The server part is done and tested.
+2. **Register lab computers and send real heartbeats.** A helper script currently pretends the computers are alive. Needed before the desktop app.
+3. **Build the desktop exam app.** The biggest remaining piece.
 
 ---
 
@@ -104,7 +105,7 @@ Each step kept the app working, so nothing was ever half broken.
 
 ## Checks
 
-`148` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
+`161` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
 
 ```bash
 cd backend  && ./.venv/bin/python -m pytest -q

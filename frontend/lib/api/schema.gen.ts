@@ -141,9 +141,15 @@ export interface paths {
          *     ejected part-way through a ninety-minute paper, which is a worse failure
          *     than the one short lifetimes are guarding against.
          *
-         *     The refresh token is rotated, not reused: each renewal returns a new one,
-         *     so a token captured from an old response stops being useful once the real
-         *     client renews again.
+         *     Each renewal returns a *new* refresh token, and the client replaces the one
+         *     it holds. The previous token is not invalidated, though: it stays valid
+         *     until it expires on its own. Killing it on use needs server-side state —
+         *     the current token id stored per session — and that is a separate change,
+         *     because a single stored id per user would sign someone out of one device
+         *     every time they used another.
+         *
+         *     So this shortens exposure, it does not end it. A captured refresh token is
+         *     good until expiry.
          */
         post: operations["refreshToken"];
         delete?: never;

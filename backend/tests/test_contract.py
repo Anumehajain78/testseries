@@ -266,13 +266,27 @@ class TestSessionRenewal:
         fresh = renewed.json()["accessToken"]
         assert client.get(f"{API}/exams", headers={"Authorization": f"Bearer {fresh}"}).status_code == 200
 
-    def test_renewal_rotates_the_refresh_token(self):
-        """A token captured from an old response stops being the current one."""
+    def test_renewal_issues_a_new_refresh_token(self):
+        """The client always ends up holding a different token."""
         tokens = self._sign_in()
         renewed = client.post(
             f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
         ).json()
         assert renewed["refreshToken"] != tokens["refreshToken"]
+
+    def test_the_previous_refresh_token_is_not_killed_on_use(self):
+        """Documenting a real limitation rather than implying otherwise.
+
+        Renewal hands out a new token but does not invalidate the old one, so a
+        captured token stays usable until it expires. Ending it on first use
+        needs the current token id stored per session; a single id per user
+        would sign someone out of one device whenever they used another.
+        """
+        tokens = self._sign_in()
+        first = client.post(f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
+        assert first.status_code == 200
+        again = client.post(f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
+        assert again.status_code == 200, "change this test when single-use rotation lands"
 
     def test_renewal_returns_the_same_person(self):
         tokens = self._sign_in()
