@@ -1,6 +1,6 @@
 import type { AnswerValue, NewTestInput } from "@/lib/types";
 import { examStore } from "./store";
-import { candidateSessionId, candidateWrites, loadStateFromServer, readUser, writes } from "./http";
+import { candidateSessionId, candidateWrites, loadExamSlice, loadStateFromServer, readUser, writes } from "./http";
 import type { CreateExamResult, ExamApi, SubmitExamResult } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -10,9 +10,10 @@ import type { CreateExamResult, ExamApi, SubmitExamResult } from "./types";
 // snapshot the screens read, so a transition the server refuses never appears
 // to have happened locally — the UI can only show state the database agreed to.
 //
-// Reloading the whole snapshot after every write is the same bridge the reads
-// use: correct, and heavier than it needs to be. It goes away when each screen
-// owns its query and can invalidate just what changed.
+// A write that touches one exam re-reads that exam, not the whole console:
+// four requests instead of eighteen, with the wait sitting in front of whoever
+// pressed the button. Only a write that can change which exams exist — or that
+// moves something outside a single exam — reloads everything.
 //
 // The candidate path — answers, flags, submission — is deliberately still
 // unimplemented. It needs check-in, per-session papers and the write guards
@@ -21,6 +22,12 @@ import type { CreateExamResult, ExamApi, SubmitExamResult } from "./types";
 
 async function refresh(): Promise<void> {
   examStore.adoptServerState((await loadStateFromServer()) as Parameters<typeof examStore.adoptServerState>[0]);
+}
+
+/** Re-read one exam and merge it in, leaving the rest of the snapshot alone. */
+async function refreshExam(examId: string): Promise<void> {
+  const merge = await loadExamSlice(examId);
+  examStore.mutate(merge);
 }
 
 /** The session behind the candidate's current paper. */
@@ -92,13 +99,13 @@ export const liveApi: ExamApi = {
 
   async updateExam(examId: string, input: NewTestInput) {
     await writes.updateExam(examId, examPayload(input));
-    await refresh();
+    await refreshExam(examId);
   },
 
 
   async scheduleExam(examId: string) {
     await writes.scheduleExam(examId);
-    await refresh();
+    await refreshExam(examId);
   },
 
   async startExam(examId: string) {
@@ -106,7 +113,7 @@ export const liveApi: ExamApi = {
     // recognised as the same attempt, so the window never moves under a room
     // full of candidates.
     await writes.startExam(examId, `start:${examId}`);
-    await refresh();
+    await refreshExam(examId);
   },
 
   async setResultsPublished(examId: string, published: boolean) {
@@ -114,7 +121,7 @@ export const liveApi: ExamApi = {
     // this used to, would publish papers still being marked alongside the one
     // the exam cell actually meant to release.
     await writes.publishResults(examId, published);
-    await refresh();
+    await refreshExam(examId);
   },
 
   async saveAnswer(examId: string, questionId: string, value: AnswerValue) {
@@ -148,6 +155,7 @@ export const liveApi: ExamApi = {
   async submitExam(examId: string): Promise<SubmitExamResult | null> {
     const sessionId = sessionFor(examId);
     const receipt = await candidateWrites.submit(sessionId);
+    // The candidate's own snapshot is their session, not the console's.
     await refresh();
     return { submissionId: receipt.submissionId };
   },

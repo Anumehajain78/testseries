@@ -70,7 +70,7 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 
 **One thing to know about logins:** when a login is renewed, the old renewal token is not cancelled — it keeps working until it runs out on its own. Cancelling it needs a bit more work on the server. Worth doing before real exams.
 
-**One thing to know about speed:** the app reloads all its data after every change. Fine with a few tests, slow with a few hundred. Worth tidying before the college actually uses it.
+**One thing to know about speed:** the app used to reload everything after every change — 18 requests to learn that one exam's status moved. Now a change to one assessment re-reads only that assessment: 4 requests instead of 18. This matters most on the live monitor, which refreshes every few seconds while an exam is running. Creating a new assessment still reloads everything, because a new one has to appear in the list.
 
 ---
 

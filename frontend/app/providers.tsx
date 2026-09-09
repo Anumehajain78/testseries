@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { ApiError, api, examStore, loadStateFromServer, readUser, signOut as forgetCredential, storeToken } from "@/lib/api";
+import { ApiError, api, examStore, loadExamSlice, loadStateFromServer, readUser, signOut as forgetCredential, storeToken } from "@/lib/api";
 import { ConnectionError, SignInGate } from "@/components/sign-in";
 import type { AnswerValue, ExamState, NewTestInput } from "@/lib/types";
 
@@ -32,6 +32,9 @@ type ExamContextValue = {
   /** Re-read the server snapshot. Returns it, or null if the read failed and
    *  the last good snapshot was kept. */
   refreshFromServer: () => Promise<ExamState | null>;
+  /** Re-read one exam and merge it in. What the monitor uses, because it
+   *  watches a single exam and does so every few seconds. */
+  refreshExam: (examId: string) => Promise<void>;
   signOut: () => void;
   /** The signed-in person, or null while the gate is up. */
   currentUser: { id: string; role: string; fullName: string } | null;
@@ -128,6 +131,15 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshExam = useCallback(async (examId: string) => {
+    try {
+      examStore.mutate(await loadExamSlice(examId));
+    } catch {
+      // Same reasoning as a failed full refresh: the last good snapshot stays
+      // on screen rather than a monitor going blank mid-examination.
+    }
+  }, []);
+
   const signOut = useCallback(() => {
     forgetCredential();
     // Clear the snapshot too: the next person to sign in must not glimpse the
@@ -157,8 +169,9 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     publishResults,
     dismissToast,
     refreshFromServer,
+    refreshExam,
     signOut,
-  }), [snapshot, createTest, updateTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, publishResults, dismissToast, refreshFromServer, signOut]);
+  }), [snapshot, createTest, updateTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, publishResults, dismissToast, refreshFromServer, refreshExam, signOut]);
 
   {
     if (phase === "error") {

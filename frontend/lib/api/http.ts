@@ -467,6 +467,74 @@ export async function loadStateFromServer(): Promise<Partial<ExamState>> {
 }
 
 /**
+ * Re-read one exam and everything that belongs to it.
+ *
+ * A write touches one exam. Reloading the whole console to learn that one
+ * status changed costs eighteen requests — every paper, every roster, every
+ * workstation — to carry a single fact, and the wait is in front of the person
+ * who pressed the button.
+ *
+ * Returns a recipe rather than a state so the merge happens against whatever
+ * the store holds at the moment it is applied, not against a snapshot read
+ * before the network call.
+ */
+export async function loadExamSlice(examId: string): Promise<(previous: ExamState) => ExamState> {
+  const detail = await request<ExamDetailDto>(`/exams/${examId}`);
+  // The audit trail moves on every write, so it is re-read with the exam.
+  // Results only exist once the exam has finished.
+  const [roster, auditPage, results, machines] = await Promise.all([
+    request<SessionRowDto[]>(`/exams/${examId}/sessions`),
+    request<PageDto<AuditEventDto>>("/audit?limit=200"),
+    detail.status === "COMPLETED"
+      ? request<ResultsPageDto>(`/exams/${examId}/results`)
+      : Promise.resolve(null),
+    // The exam's own lab, because the monitor reads liveness from the
+    // workstations and this is the call it makes every few seconds.
+    request<ComputerDto[]>(`/labs/${detail.labId}/computers`),
+  ]);
+
+  return (previous) => {
+    const test: Test = {
+      ...toTest(detail, detail),
+      assignedStudentIds: roster.map((row) => row.studentId),
+      resultsPublishedAt: results?.published ? results.publishedAt ?? null : null,
+    };
+    const tests = previous.tests.some((t) => t.id === examId)
+      ? previous.tests.map((t) => (t.id === examId ? test : t))
+      : [...previous.tests, test];
+
+    const sessions = [
+      ...previous.sessions.filter((session) => session.testId !== examId),
+      ...roster.map((row) => toSession(examId, row)),
+    ];
+
+    // Seating is a fact about sessions across every exam, so it is recomputed
+    // over the merged set. Only this lab's workstations are re-read; the other
+    // labs keep whatever liveness they last reported.
+    const seatedBy = new Map<string, string>();
+    for (const session of sessions) {
+      if (session.computerId !== "Unassigned") seatedBy.set(session.computerId, session.studentId);
+    }
+    const refreshed = new Map(machines.map((dto) => [dto.machineId, toComputer(dto)]));
+
+    return {
+      ...previous,
+      tests,
+      sessions,
+      computers: previous.computers.map((computer) => ({
+        ...(refreshed.get(computer.id) ?? computer),
+        assignedStudentId: seatedBy.get(computer.id),
+      })),
+      results: [
+        ...previous.results.filter((row) => row.testId !== examId),
+        ...(results ? toResults(results) : []),
+      ],
+      audits: auditPage.items.map(toAudit),
+    };
+  };
+}
+
+/**
  * The candidate's world: their assessments, their session, their answers.
  *
  * Assembled into the same ExamState shape the student screens already read, so

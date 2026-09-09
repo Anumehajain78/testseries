@@ -71,7 +71,11 @@ export const examStore = {
     commit(state, true);
   },
 
-  /** Local-only changes: toasts, and the optimistic echo of a saved answer. */
+  /** Apply a recipe to the snapshot in place.
+   *
+   *  Used for local-only changes — toasts, the optimistic echo of a saved
+   *  answer — and for merging a re-read of one exam, where the point is to
+   *  leave the rest of the snapshot exactly as it is. */
   mutate(recipe: (previous: ExamState) => ExamState): ExamState {
     const next = recipe(snapshot.state);
     if (next === snapshot.state) return next;

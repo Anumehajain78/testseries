@@ -130,7 +130,7 @@ export function StudentDetailPanel({ row, onClose, nowMs }: { row: MonitorRow | 
 // -----------------------------------------------------------------------------
 export function MonitorScreen() {
   const params = useParams<{ id: string }>();
-  const { state, hydrated, refreshFromServer } = useExam();
+  const { state, hydrated, refreshExam } = useExam();
   const [filter, setFilter] = useState<MonitorFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Display-only tick refreshes "time since last heartbeat" strings (Req 6.3, 6.6).
@@ -146,14 +146,18 @@ export function MonitorScreen() {
   useEffect(() => {
     if (!params.id) return;
     const socket = watchExam(params.id, {
-      onChange: () => { void refreshFromServer(); },
+      // Only this exam is re-read. During a live examination every heartbeat
+      // that changes a machine's liveness lands here, and reloading the whole
+      // console each time put eighteen requests behind one candidate's screen
+      // going amber.
+      onChange: () => { void refreshExam(params.id); },
       onStatus: setLive,
     });
     // Polling is the documented fallback, and runs whether or not the socket
     // is up: losing the connection should slow the monitor, not stop it.
-    const poll = window.setInterval(() => { void refreshFromServer(); }, 15_000);
+    const poll = window.setInterval(() => { void refreshExam(params.id); }, 15_000);
     return () => { socket.close(); clearInterval(poll); };
-  }, [params.id, refreshFromServer]);
+  }, [params.id, refreshExam]);
   const rows = useMemo(
     () => test ? buildMonitorRows(test.id, state.sessions, state.computers, state.students) : [],
     [test, state.sessions, state.computers, state.students],

@@ -10,7 +10,7 @@ export {
   candidateSessionId,
   candidateWrites,
   directory,
-  loadStateFromServer,
+  loadExamSlice, loadStateFromServer,
   marking,
   readToken,
   readUser,
