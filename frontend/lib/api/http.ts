@@ -350,11 +350,10 @@ const toResults = (page: ResultsPageDto): Result[] =>
     id: row.sessionId,
     testId: page.examId,
     studentId: row.studentId,
-    // A withheld score arrives as null. The Results screen has no "not yet
-    // published" state of its own yet, so it would render this as 0%. Until
-    // that state exists (it belongs with the publish action), only published
-    // results are mapped through — see the filter in loadStateFromServer.
-    score: row.score ?? 0,
+    // Withheld arrives as null and stays null. Reading it as zero would tell
+    // a candidate they scored nothing, and would drag the cohort average down
+    // with a mark nobody has released.
+    score: row.score ?? null,
     total: row.maxScore,
     submittedAt: row.submittedAt,
     mode: row.mode === "AUTO" ? "automatic" : "manual",
@@ -417,6 +416,9 @@ export async function loadStateFromServer(): Promise<Partial<ExamState>> {
       .filter((exam) => exam.status === "COMPLETED")
       .map((exam) => request<ResultsPageDto>(`/exams/${exam.id}/results`)),
   );
+  const publishedAt = new Map(
+    resultPages.map((page) => [page.examId, page.published ? page.publishedAt ?? null : null]),
+  );
 
   const sessions: ExamSession[] = [];
   const tests: Test[] = examPage.items.map((exam, index) => {
@@ -425,6 +427,7 @@ export async function loadStateFromServer(): Promise<Partial<ExamState>> {
     return {
       ...toTest(exam, details[index]),
       assignedStudentIds: roster.map((row) => row.studentId),
+      resultsPublishedAt: publishedAt.get(exam.id) ?? null,
     };
   });
 
@@ -449,15 +452,15 @@ export async function loadStateFromServer(): Promise<Partial<ExamState>> {
     labs: labs.map(toLab),
     computers,
     sessions,
-    // Unpublished pages are dropped rather than shown as zeros: an empty
-    // results table is honest, a table of 0% is not.
-    results: resultPages.filter((page) => page.published).flatMap(toResults),
+    // Withheld pages are carried too. Dropping them read as "nobody sat this
+    // exam", when in fact the papers are in and the marks simply have not been
+    // released — which is what the screen now says.
+    results: resultPages.flatMap(toResults),
     audits: auditPage.items.map(toAudit),
     submissions: [],
     answers: {} as Record<string, Record<string, AnswerValue>>,
     flags: {},
     toasts: [],
-    resultsPublished: resultPages.some((page) => page.published),
   };
 }
 
@@ -572,7 +575,6 @@ function emptyState(): Partial<ExamState> {
     answers: {},
     flags: {},
     toasts: [],
-    resultsPublished: false,
   };
 }
 

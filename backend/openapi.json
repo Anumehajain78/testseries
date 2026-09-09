@@ -3360,7 +3360,7 @@
     }
   },
   "info": {
-    "description": "Phase 2 contract. Handlers return static examples; the shapes, status codes and operation ids are final and generate the frontend client.",
+    "description": "Every handler is backed by the database. The shapes, status codes and operation ids generate the frontend client, so changing one here changes the client on the next generation.",
     "summary": "Server-authoritative examination platform for physical computer labs.",
     "title": "Exam Control API",
     "version": "0.2.0"

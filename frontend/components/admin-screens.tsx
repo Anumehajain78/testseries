@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useExam } from "@/app/providers";
 import { formatDate, formatDateTime, formatDuration, formatScore, formatTime, initials, percentage, statusLabel } from "@/lib/format";
-import type { AuditSeverity, Computer, ConnectionStatus, ExamSession, ExamStatus, Lab, NewTestInput, QuestionType, Student, StudentExamStatus, Test } from "@/lib/types";
+import type { AuditSeverity, Computer, ConnectionStatus, ExamSession, ExamState, ExamStatus, Lab, NewTestInput, QuestionType, Result, Student, StudentExamStatus, Test } from "@/lib/types";
 import { buildMonitorRows, computeLabOccupancy, filterAuditEvents, summarizeMonitorRows, type AuditFilter } from "@/lib/selectors";
+import { resultsFileName, resultsToCsv } from "@/lib/export";
 import { EXAM_STATUS_LABEL, examBadgeTone, examStatusTone } from "@/lib/status";
 import { AddStudentDialog, ImportRosterDialog } from "./roster";
 import { Icon } from "./icons";
@@ -527,63 +528,156 @@ function timeTaken(test: Test | undefined, submittedAt: string) {
   return seconds > 0 ? formatDuration(seconds) : "—";
 }
 
+/** Hand the released marks to the browser as a file. The assembly itself is
+ *  in lib/export so it can be tested away from the DOM. */
+function exportResults(
+  ranked: Array<{ result: Result; score: number; rank: number }>,
+  state: ExamState,
+  chosen?: Test,
+) {
+  const blob = new Blob([resultsToCsv(ranked, state)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = resultsFileName(chosen);
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Results
+//
+// Scores are withheld until the exam cell releases them, and until this screen
+// had a publish control there was no way to release them at all: papers were
+// marked and candidates saw "scores withheld" for ever.
+//
+// Publication is per assessment. Releasing every finished exam at once would
+// hand out marks for a paper still being read.
+// ---------------------------------------------------------------------------
+
 export function ResultsScreen() {
-  const { state, hydrated } = useExam();
+  const { state, hydrated, publishResults } = useExam();
   const [testFilter, setTestFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
-  // Filter to the chosen assessment, then rank by percentage (highest = rank 1) (Req 10.2).
-  const ranked = useMemo(() =>
-    state.results
-      .filter((r) => testFilter === "all" || r.testId === testFilter)
-      .sort((a, b) => percentage(b.score, b.total) - percentage(a.score, a.total))
-      .map((result, index) => ({ result, rank: index + 1 })),
-  [state.results, testFilter]);
+  const visible = useMemo(
+    () => state.results.filter((r) => testFilter === "all" || r.testId === testFilter),
+    [state.results, testFilter],
+  );
 
-  // Aggregate stats: submitted count, average percentage, highest percentage (Req 10.1).
+  // A withheld score cannot be ranked against a released one, so the two are
+  // kept apart: released results are ranked, withheld ones are listed by name.
+  const ranked = useMemo(() => {
+    const scored = visible.flatMap((result) =>
+      result.score === null ? [] : [{ result, score: result.score }],
+    );
+    return scored
+      .sort((a, b) => percentage(b.score, b.result.total) - percentage(a.score, a.result.total))
+      .map((row, index) => ({ ...row, rank: index + 1 }));
+  }, [visible]);
+
+  const withheld = useMemo(() => visible.filter((result) => result.score === null), [visible]);
+
+  // Averages are taken over released marks only. Counting a withheld paper as
+  // nought would drag the cohort down with a mark nobody has published.
   const stats = useMemo(() => {
-    if (!ranked.length) return { submitted: 0, average: 0, highest: 0, topName: "—" };
-    const percentages = ranked.map(({ result }) => percentage(result.score, result.total));
-    const top = ranked[0];
-    const topStudent = state.students.find((s) => s.id === top.result.studentId);
+    if (!ranked.length) return { submitted: visible.length, average: 0, highest: 0, topName: "—" };
+    const percentages = ranked.map((row) => percentage(row.score, row.result.total));
+    const topStudent = state.students.find((s) => s.id === ranked[0].result.studentId);
     return {
-      submitted: ranked.length,
+      submitted: visible.length,
       average: Math.round(percentages.reduce((sum, p) => sum + p, 0) / percentages.length),
       highest: percentages[0],
       topName: topStudent?.name ?? "—",
     };
-  }, [ranked, state.students]);
+  }, [ranked, visible.length, state.students]);
 
   if (!hydrated) return <LoadingState/>;
 
+  const chosen = testFilter === "all" ? undefined : state.tests.find((t) => t.id === testFilter);
+  const published = Boolean(chosen?.resultsPublishedAt);
   const selected = selectedId ? ranked.find(({ result }) => result.id === selectedId) : undefined;
   const selectedStudent = selected ? state.students.find((s) => s.id === selected.result.studentId) : undefined;
   const selectedTest = selected ? state.tests.find((t) => t.id === selected.result.testId) : undefined;
 
+  const togglePublication = () => {
+    if (!chosen) return;
+    setPublishing(true);
+    void publishResults(chosen.id, !published).finally(() => setPublishing(false));
+  };
+
   return <>
-    <PageHeader eyebrow="Outcomes" title="Results" description="Review synchronized submissions and candidate performance." actions={<Button tone="secondary" icon="file" title="Report export is available in a later phase">Export report</Button>}/>
+    <PageHeader
+      eyebrow="Outcomes"
+      title="Results"
+      description="Review synchronized submissions and candidate performance."
+      actions={<>
+        <Button tone="secondary" icon="file" disabled={!ranked.length} onClick={() => exportResults(ranked, state, chosen)}>Export report</Button>
+        {/* Only offered for one assessment at a time, because that is how the
+            server releases them and how a college decides them. */}
+        {chosen && <Button
+          icon={published ? "shield" : "check"}
+          tone={published ? "secondary" : "primary"}
+          disabled={publishing || !visible.length}
+          onClick={togglePublication}
+        >
+          {publishing ? "Saving…" : published ? "Withhold scores" : "Publish scores"}
+        </Button>}
+      </>}
+    />
     <div className="toolbar split">
-      <Select label="Assessment" value={testFilter} onChange={(e) => setTestFilter(e.target.value)}><option value="all">All assessments</option>{state.tests.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}</Select>
-      <Badge tone="info">{ranked.length} results</Badge>
+      <Select label="Assessment" value={testFilter} onChange={(e) => { setTestFilter(e.target.value); setSelectedId(null); }}><option value="all">All assessments</option>{state.tests.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}</Select>
+      <div className="filter-group">
+        {chosen && <Badge tone={published ? "success" : "warning"}>{published ? "Scores published" : "Scores withheld"}</Badge>}
+        <Badge tone="info">{visible.length} results</Badge>
+      </div>
     </div>
+
+    {/* Said plainly, because the difference between "nobody has sat this" and
+        "nobody has released this" is the whole question a candidate is asking. */}
+    {withheld.length > 0 && <div className="results-notice">
+      <Icon name="shield" size={18}/>
+      <div>
+        <strong>{withheld.length} {withheld.length === 1 ? "paper is" : "papers are"} marked but not released</strong>
+        <small>
+          {chosen
+            ? "Candidates see “scores withheld” until you publish this assessment."
+            : "Choose a single assessment above to publish or withhold its scores."}
+        </small>
+      </div>
+    </div>}
+
     <div className="stats-grid three">
       <StatCard label="Students submitted" value={stats.submitted} detail="Recorded submissions" icon="file" tone="blue"/>
-      <StatCard label="Average score" value={stats.submitted ? `${stats.average}%` : "—"} detail="Across current selection" icon="chart" tone="teal"/>
-      <StatCard label="Highest score" value={stats.submitted ? `${stats.highest}%` : "—"} detail={stats.submitted ? stats.topName : "No submissions"} icon="shield" tone="navy"/>
+      <StatCard label="Average score" value={ranked.length ? `${stats.average}%` : "—"} detail={ranked.length ? "Across released marks" : "No released marks"} icon="chart" tone="teal"/>
+      <StatCard label="Highest score" value={ranked.length ? `${stats.highest}%` : "—"} detail={ranked.length ? stats.topName : "No released marks"} icon="shield" tone="navy"/>
     </div>
     <Card className="table-card">
-      {ranked.length ? <TableShell caption="Exam results">
+      {visible.length ? <TableShell caption="Exam results">
         <thead><tr><th>Rank</th><th>Candidate</th><th>Roll number</th><th>Score</th><th>Percentage</th><th>Time taken</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
-        <tbody>{ranked.map(({ result, rank }) => { const student = state.students.find((s) => s.id === result.studentId); const test = state.tests.find((t) => t.id === result.testId); return <tr key={result.id}>
-          <td><strong>#{rank}</strong></td>
-          <td className="table-title">{student?.name ?? "Unknown candidate"}</td>
-          <td>{student?.registrationNo ?? "—"}</td>
-          <td><strong>{formatScore(result.score, result.total)}</strong></td>
-          <td><span className="score-pill">{percentage(result.score, result.total)}%</span></td>
-          <td>{timeTaken(test, result.submittedAt)}</td>
-          <td><Badge tone={result.mode === "automatic" ? "warning" : "success"}>{result.mode === "automatic" ? "Auto-submitted" : "Submitted"}</Badge></td>
-          <td><div className="row-actions"><Button tone="ghost" onClick={() => setSelectedId(result.id)}>View result</Button></div></td>
-        </tr>; })}</tbody>
+        <tbody>
+          {ranked.map(({ result, score, rank }) => { const student = state.students.find((s) => s.id === result.studentId); const test = state.tests.find((t) => t.id === result.testId); return <tr key={result.id}>
+            <td><strong>#{rank}</strong></td>
+            <td className="table-title">{student?.name ?? "Unknown candidate"}</td>
+            <td>{student?.registrationNo ?? "—"}</td>
+            <td><strong>{formatScore(score, result.total)}</strong></td>
+            <td><span className="score-pill">{percentage(score, result.total)}%</span></td>
+            <td>{timeTaken(test, result.submittedAt)}</td>
+            <td><Badge tone={result.mode === "automatic" ? "warning" : "success"}>{result.mode === "automatic" ? "Auto-submitted" : "Submitted"}</Badge></td>
+            <td><div className="row-actions"><Button tone="ghost" onClick={() => setSelectedId(result.id)}>View result</Button></div></td>
+          </tr>; })}
+          {withheld.map((result) => { const student = state.students.find((s) => s.id === result.studentId); const test = state.tests.find((t) => t.id === result.testId); return <tr key={result.id} className="is-withheld">
+            <td>—</td>
+            <td className="table-title">{student?.name ?? "Unknown candidate"}</td>
+            <td>{student?.registrationNo ?? "—"}</td>
+            <td><Badge tone="warning">Withheld</Badge></td>
+            <td>—</td>
+            <td>{timeTaken(test, result.submittedAt)}</td>
+            <td><Badge tone={result.mode === "automatic" ? "warning" : "success"}>{result.mode === "automatic" ? "Auto-submitted" : "Submitted"}</Badge></td>
+            <td><div className="row-actions"><span className="muted-note">Publish to view</span></div></td>
+          </tr>; })}
+        </tbody>
       </TableShell> : <EmptyState icon="file" title="No results yet" description="Results appear here once candidates submit a completed examination. Choose a different assessment to review other outcomes."/>}
     </Card>
     <Modal open={Boolean(selected)} onClose={() => setSelectedId(null)} title="Candidate result" description={selectedTest ? `${selectedTest.title} · ${selectedTest.code}` : undefined} actions={<Button onClick={() => setSelectedId(null)}>Close</Button>}>
@@ -591,8 +685,8 @@ export function ResultsScreen() {
         <div><dt>Candidate</dt><dd>{selectedStudent?.name ?? "Unknown"}</dd></div>
         <div><dt>Roll number</dt><dd>{selectedStudent?.registrationNo ?? "—"}</dd></div>
         <div><dt>Rank</dt><dd>#{selected.rank}</dd></div>
-        <div><dt>Score</dt><dd>{formatScore(selected.result.score, selected.result.total)}</dd></div>
-        <div><dt>Percentage</dt><dd>{percentage(selected.result.score, selected.result.total)}%</dd></div>
+        <div><dt>Score</dt><dd>{formatScore(selected.score, selected.result.total)}</dd></div>
+        <div><dt>Percentage</dt><dd>{percentage(selected.score, selected.result.total)}%</dd></div>
         <div><dt>Time taken</dt><dd>{timeTaken(selectedTest, selected.result.submittedAt)}</dd></div>
         <div><dt>Submitted</dt><dd>{formatDateTime(selected.result.submittedAt)}</dd></div>
         <div><dt>Status</dt><dd>{selected.result.mode === "automatic" ? "Auto-submitted" : "Submitted"}</dd></div>

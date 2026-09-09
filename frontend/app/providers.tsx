@@ -27,7 +27,7 @@ type ExamContextValue = {
   answerQuestion: (testId: string, questionId: string, value: AnswerValue) => Promise<void>;
   flagQuestion: (testId: string, questionId: string) => Promise<void>;
   submitExam: (testId: string, mode?: "manual" | "automatic") => Promise<void>;
-  publishResults: (published: boolean) => Promise<void>;
+  publishResults: (examId: string, published: boolean) => Promise<void>;
   dismissToast: (id: string) => void;
   /** Re-read the server snapshot. */
   refreshFromServer: () => Promise<void>;
@@ -109,7 +109,7 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   const answerQuestion = useCallback((testId: string, questionId: string, value: AnswerValue) => guard(() => api.saveAnswer(testId, questionId, value)), [guard]);
   const flagQuestion = useCallback((testId: string, questionId: string) => guard(() => api.toggleFlag(testId, questionId)), [guard]);
   const submitExam = useCallback(async (testId: string, mode: "manual" | "automatic" = "manual") => { await guard(() => api.submitExam(testId, mode)); }, [guard]);
-  const publishResults = useCallback((published: boolean) => guard(() => api.setResultsPublished(published)), [guard]);
+  const publishResults = useCallback((examId: string, published: boolean) => guard(() => api.setResultsPublished(examId, published)), [guard]);
 
   // Adopt a fresh server snapshot without disturbing the sign-in flow. Used by
   // the live monitor when the socket says something changed.

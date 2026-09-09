@@ -39,8 +39,9 @@ app = FastAPI(
     version="0.2.0",
     summary="Server-authoritative examination platform for physical computer labs.",
     description=(
-        "Phase 2 contract. Handlers return static examples; the shapes, status "
-        "codes and operation ids are final and generate the frontend client."
+        "Every handler is backed by the database. The shapes, status codes and "
+        "operation ids generate the frontend client, so changing one here "
+        "changes the client on the next generation."
     ),
     openapi_url=f"{API_PREFIX}/openapi.json",
     docs_url=f"{API_PREFIX}/docs",

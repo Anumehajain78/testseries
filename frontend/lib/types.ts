@@ -51,6 +51,10 @@ export interface Test {
   questions: Question[];
   config: ExamConfig;
   endsAt?: string;
+  /** When the exam cell released this assessment's scores. Null while
+   *  withheld. Publication is per assessment: releasing one must not release
+   *  another that is still being marked. */
+  resultsPublishedAt?: string | null;
 }
 
 export interface Student {
@@ -106,7 +110,9 @@ export interface Result {
   id: string;
   testId: string;
   studentId: string;
-  score: number;
+  /** Null while the assessment's results are withheld. A withheld score is
+   *  not a zero, and rendering it as one would tell a candidate they failed. */
+  score: number | null;
   total: number;
   submittedAt: string;
   mode: "manual" | "automatic";
@@ -155,7 +161,6 @@ export interface ExamState {
   flags: Record<string, string[]>;
   toasts: Toast[];
   /** Whether the exam cell has released scores to candidates. */
-  resultsPublished: boolean;
 }
 
 export interface NewTestInput {

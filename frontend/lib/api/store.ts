@@ -35,7 +35,6 @@ export function emptyExamState(): ExamState {
     answers: {},
     flags: {},
     toasts: [],
-    resultsPublished: false,
   };
 }
 

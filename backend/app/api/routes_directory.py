@@ -5,7 +5,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
-from app import examples
 from app.api.deps import Admin, CurrentPrincipal, DbSession, Staff
 from app.core.security import TokenError, decode_token, issue_user_tokens, verify_secret
 from app.db.models import Student, User

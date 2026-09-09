@@ -109,15 +109,11 @@ export const liveApi: ExamApi = {
     await refresh();
   },
 
-  async setResultsPublished(published: boolean) {
-    // Publication is per exam on the server; the demo's single switch maps to
-    // every completed exam, which is the closest honest reading of it.
-    const completed = examStore
-      .getSnapshot()
-      .state.tests.filter((test) => test.status === "completed");
-    for (const test of completed) {
-      await writes.publishResults(test.id, published);
-    }
+  async setResultsPublished(examId: string, published: boolean) {
+    // One assessment at a time. Releasing every completed exam at once, as
+    // this used to, would publish papers still being marked alongside the one
+    // the exam cell actually meant to release.
+    await writes.publishResults(examId, published);
     await refresh();
   },
 

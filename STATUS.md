@@ -60,7 +60,9 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | **Works** | **Editing a draft.** Change anything — title, schedule, lab, students, questions — until candidates are given seats. After that it is locked, and the screen says so. |
 | **Works** | **Add candidates from the screen.** One at a time, or paste a whole spreadsheet. Each new candidate gets a password, shown once — copy it before closing. |
 | **Works** | **Import a roster.** A bad row no longer sinks the file: the good rows go in, and each bad one is listed with its line number and the reason. |
-| **Not started** | **Buttons that are only for show.** Export report, Run health check. |
+| **Works** | **Publish results.** Marks stay hidden until the exam cell releases them, one assessment at a time. Until now there was no way to release them at all — every candidate saw "scores withheld" for ever. |
+| **Works** | **Export report.** Downloads the released marks as a spreadsheet. Withheld marks are left out rather than written as zero. |
+| **Not started** | **Buttons that are only for show.** Run health check, on the Labs screen. |
 
 **One thing to know about who may add students:** only the exam cell administrator can add, edit or import candidates. Teachers can see the list but not change it. Before, a teacher was blocked from pasting a roster but could still add the same people one form at a time — the buttons and the server now agree.
 

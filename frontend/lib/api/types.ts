@@ -50,9 +50,10 @@ export interface ExamApi {
    *  original receipt rather than recording a new one. */
   submitExam(examId: string, mode?: SubmitMode): Promise<SubmitExamResult | null>;
 
-  /** POST /exams/{id}/results/publish — sets `results.published_at`. Stands in
-   *  for the demo's score-visibility switch. */
-  setResultsPublished(published: boolean): Promise<void>;
+  /** POST /exams/{id}/results/publish — sets `results.published_at` for one
+   *  assessment. Until it is called the candidate sees "scores withheld", so
+   *  this is the step that actually gives a cohort its marks. */
+  setResultsPublished(examId: string, published: boolean): Promise<void>;
 
   /** Demo affordance only. Has no server counterpart and disappears with the
    *  mock implementation. */
