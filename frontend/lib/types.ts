@@ -85,6 +85,12 @@ export interface Computer {
   index: number;
   assignedStudentId?: string;
   connection: ConnectionStatus;
+  /** Null until the workstation has been enrolled from the lab client. A
+   *  machine that was never enrolled cannot sit a candidate. */
+  enrolledAt?: string | null;
+  /** Last heartbeat the server received. Null means it has never reported —
+   *  which is a different problem from having gone quiet. */
+  lastSeenAt?: string | null;
 }
 
 export interface ActivityEntry {

@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useExam } from "@/app/providers";
-import { initials } from "@/lib/format";
+import { formatTime, initials } from "@/lib/format";
 import { computeLabOccupancy, type LabOccupancy } from "@/lib/selectors";
+import { checkLabs, labVerdict, type HealthReport } from "@/lib/health";
 import type { Computer, ConnectionStatus, ExamSession, Lab, Student, StudentExamStatus } from "@/lib/types";
 import { EXAM_STATUS_LABEL, examStatusTone } from "@/lib/status";
 import { Icon } from "./icons";
@@ -73,13 +74,68 @@ export function ComputerGrid({ computers }: { computers: ComputerView[] }) {
   </article>)}</div>;
 }
 
+
+// -----------------------------------------------------------------------------
+// HealthReportPanel — what the last check actually found
+// -----------------------------------------------------------------------------
+function HealthReportPanel({ report, onDismiss }: { report: HealthReport; onDismiss: () => void }) {
+  return <Card className="health-report">
+    <div className="section-heading">
+      <div>
+        <p className="eyebrow">Health check</p>
+        <h2>{report.unusable === 0 ? "Every workstation is reporting" : `${report.unusable} ${report.unusable === 1 ? "workstation" : "workstations"} cannot seat a candidate`}</h2>
+        {/* What was actually measured, so nobody reads this as a live ping. */}
+        <p className="health-note">Read from the last heartbeat each machine sent, at {formatTime(report.checkedAt)}.</p>
+      </div>
+      <Button tone="ghost" onClick={onDismiss}>Dismiss</Button>
+    </div>
+    <ul className="health-list">
+      {report.labs.map((row) => {
+        const verdict = labVerdict(row);
+        return <li key={row.lab.id} className={`health-row health-${verdict}`}>
+          <div>
+            <strong>{row.lab.name}</strong>
+            <small>{row.lab.building}</small>
+          </div>
+          <div className="health-counts">
+            <Badge tone={verdict === "ok" ? "success" : verdict === "attention" ? "warning" : "danger"}>
+              {row.online}/{row.total} online
+            </Badge>
+            {row.warning > 0 && <span>{row.warning} slow to report</span>}
+            {row.quiet > 0 && <span>{row.quiet} gone quiet</span>}
+            {row.neverSeen > 0 && <span>{row.neverSeen} never reported</span>}
+            {row.neverEnrolled > 0 && <span>{row.neverEnrolled} not enrolled</span>}
+            {row.total === 0 && <span>no workstations registered</span>}
+          </div>
+        </li>;
+      })}
+    </ul>
+  </Card>;
+}
+
 // -----------------------------------------------------------------------------
 // LabsScreen — labs overview with drill-down into a lab's workstation grid
 // (Req 9.1, 9.2, 9.5)
 // -----------------------------------------------------------------------------
 export function LabsScreen() {
-  const { state, hydrated } = useExam();
+  const { state, hydrated, refreshFromServer } = useExam();
   const [selectedLabId, setSelectedLabId] = useState<string | null>(null);
+  const [report, setReport] = useState<HealthReport | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  // Re-read from the server first: the point of pressing this is to find out
+  // what is true now, not to restate what the page was already showing.
+  const runHealthCheck = async () => {
+    setChecking(true);
+    try {
+      const fresh = await refreshFromServer();
+      // If the read failed the page still shows the last good snapshot, but a
+      // report built from it would be dated and claim to be current.
+      if (fresh) setReport(checkLabs(fresh.labs, fresh.computers, new Date().toISOString()));
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const labs = useMemo(() => state.labs.map((lab) => ({ lab, occupancy: computeLabOccupancy(lab.id, state.computers) })), [state.labs, state.computers]);
   const selected = labs.find((item) => item.lab.id === selectedLabId) ?? null;
@@ -91,7 +147,8 @@ export function LabsScreen() {
   if (!hydrated) return <LoadingState/>;
 
   return <>
-    <PageHeader eyebrow="Infrastructure" title="Labs & computers" description="Monitor examination venues and workstation readiness across campus." actions={<Button tone="secondary" icon="reset">Run health check</Button>}/>
+    <PageHeader eyebrow="Infrastructure" title="Labs & computers" description="Monitor examination venues and workstation readiness across campus." actions={<Button tone="secondary" icon="reset" disabled={checking} onClick={() => { void runHealthCheck(); }}>{checking ? "Checking…" : "Run health check"}</Button>}/>
+    {report && <HealthReportPanel report={report} onDismiss={() => setReport(null)}/>}
     <div className="lab-grid">{labs.map(({ lab, occupancy }) => <LabCard key={lab.id} lab={lab} occupancy={occupancy} active={lab.id === selectedLabId} onOpen={() => setSelectedLabId((current) => current === lab.id ? null : lab.id)}/>)}</div>
     {selected && <Card className="table-card computer-panel">
       <div className="section-heading">

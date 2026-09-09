@@ -330,6 +330,8 @@ const toComputer = (computer: ComputerDto): Computer => ({
   labId: computer.labId,
   index: computer.position,
   connection: toConnection(computer.connection),
+  enrolledAt: computer.enrolledAt ?? null,
+  lastSeenAt: computer.lastHeartbeatAt ?? null,
 });
 
 const toSession = (examId: string, row: SessionRowDto): ExamSession => ({

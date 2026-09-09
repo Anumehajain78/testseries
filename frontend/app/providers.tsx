@@ -29,8 +29,9 @@ type ExamContextValue = {
   submitExam: (testId: string, mode?: "manual" | "automatic") => Promise<void>;
   publishResults: (examId: string, published: boolean) => Promise<void>;
   dismissToast: (id: string) => void;
-  /** Re-read the server snapshot. */
-  refreshFromServer: () => Promise<void>;
+  /** Re-read the server snapshot. Returns it, or null if the read failed and
+   *  the last good snapshot was kept. */
+  refreshFromServer: () => Promise<ExamState | null>;
   signOut: () => void;
   /** The signed-in person, or null while the gate is up. */
   currentUser: { id: string; role: string; fullName: string } | null;
@@ -113,12 +114,17 @@ export function ExamProvider({ children }: { children: ReactNode }) {
 
   // Adopt a fresh server snapshot without disturbing the sign-in flow. Used by
   // the live monitor when the socket says something changed.
-  const refreshFromServer = useCallback(async () => {
+  const refreshFromServer = useCallback(async (): Promise<ExamState | null> => {
     try {
-      examStore.adoptServerState((await loadStateFromServer()) as ExamState);
+      const fresh = (await loadStateFromServer()) as ExamState;
+      examStore.adoptServerState(fresh);
+      // Returned as well as adopted, so a caller that needs to read the result
+      // of its own refresh does not have to wait for the next render.
+      return fresh;
     } catch {
       // A failed refresh leaves the last good snapshot on screen, which beats
       // blanking a monitor mid-examination.
+      return null;
     }
   }, []);
 
