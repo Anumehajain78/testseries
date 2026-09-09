@@ -747,8 +747,38 @@ export interface paths {
         /** List Students */
         get: operations["listStudents"];
         put?: never;
-        /** Create Student */
+        /**
+         * Create Student
+         * @description Add one candidate. The password is shown here and nowhere else.
+         *
+         *     Administrative, like the bulk import below. Allowing faculty to add
+         *     candidates one at a time while refusing them the paste would not protect
+         *     the register — it would only make rewriting it tedious.
+         */
         post: operations["createStudent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Roster
+         * @description Create candidates from a spreadsheet export.
+         *
+         *     Administrators only, and partial by design: rows that cannot be taken are
+         *     reported with a reason and a line number rather than sinking the file.
+         */
+        post: operations["importRoster"];
         delete?: never;
         options?: never;
         head?: never;
@@ -768,7 +798,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update Student */
+        /**
+         * Update Student
+         * @description Edit a candidate, including blocking them from signing in.
+         */
         patch: operations["updateStudent"];
         trace?: never;
     };
@@ -1394,6 +1427,34 @@ export interface components {
             /** Sessionid */
             sessionId?: string | null;
         };
+        /**
+         * ImportOutcome
+         * @description A row that could not be taken, and why.
+         */
+        ImportOutcome: {
+            /**
+             * Line
+             * @description Line number in the uploaded file, counting the header as 1.
+             */
+            line: number;
+            /** Reason */
+            reason: string;
+            /** Registrationno */
+            registrationNo: string;
+        };
+        /**
+         * ImportSummary
+         * @description What an import did.
+         *
+         *     Partial by design: one duplicate in a roster of sixty should not cost the
+         *     other fifty-nine.
+         */
+        ImportSummary: {
+            /** Created */
+            created?: components["schemas"]["NewStudent"][];
+            /** Failed */
+            failed?: components["schemas"]["ImportOutcome"][];
+        };
         /** LabOut */
         LabOut: {
             /** Building */
@@ -1569,6 +1630,19 @@ export interface components {
             kind: "multiple";
             /** Options */
             options?: number[];
+        };
+        /**
+         * NewStudent
+         * @description A candidate just created, with the one look at their password.
+         *
+         *     Returned rather than stored in the clear, and never retrievable again: an
+         *     administrator distributes it, and a candidate who loses it needs a reset
+         *     rather than a lookup.
+         */
+        NewStudent: {
+            student: components["schemas"]["StudentOut"];
+            /** Temporarypassword */
+            temporaryPassword: string;
         };
         /** OptionIn */
         OptionIn: {
@@ -1799,6 +1873,14 @@ export interface components {
          * @enum {string}
          */
         Role: "ADMIN" | "FACULTY" | "STUDENT";
+        /** RosterImportRequest */
+        RosterImportRequest: {
+            /**
+             * Csv
+             * @description The file's contents, header row included.
+             */
+            csv: string;
+        };
         /** SaveAnswerRequest */
         SaveAnswerRequest: {
             /**
@@ -3567,7 +3649,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StudentOut"];
+                    "application/json": components["schemas"]["NewStudent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    importRoster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RosterImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSummary"];
                 };
             };
             /** @description Validation Error */

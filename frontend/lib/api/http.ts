@@ -7,7 +7,9 @@ import type {
   ExamSummaryDto,
   ExamWindowDto,
   LabDto,
+  ImportSummaryDto,
   MarkingItemDto,
+  NewStudentDto,
   SessionPaperDto,
   SessionStateDto,
   SubmissionReceiptDto,
@@ -201,6 +203,13 @@ export const candidateWrites = {
   toggleFlag: (sessionId: string, questionId: string) =>
     put(`/sessions/${sessionId}/flags/${questionId}`, {}),
   submit: (sessionId: string) => post<SubmissionReceiptDto>(`/sessions/${sessionId}/submit`, {}),
+};
+
+export const directory = {
+  createStudent: (body: unknown) => post<NewStudentDto>("/students", body),
+  updateStudent: (studentId: string, body: unknown) =>
+    request<StudentDto>(`/students/${studentId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  importRoster: (csv: string) => post<ImportSummaryDto>("/students/import", { csv }),
 };
 
 export const marking = {

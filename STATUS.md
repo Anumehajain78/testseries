@@ -58,8 +58,11 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | --- | --- |
 | **Works** | **Staying logged in.** Logins renew by themselves in the background, so nobody is signed out mid-exam. |
 | **Works** | **Editing a draft.** Change anything — title, schedule, lab, students, questions — until candidates are given seats. After that it is locked, and the screen says so. |
-| **Not started** | **Buttons that are only for show.** Import roster, Export report, Run health check. |
-| **Not started** | **Add and edit students from the screen.** They come from the seed file at the moment. |
+| **Works** | **Add candidates from the screen.** One at a time, or paste a whole spreadsheet. Each new candidate gets a password, shown once — copy it before closing. |
+| **Works** | **Import a roster.** A bad row no longer sinks the file: the good rows go in, and each bad one is listed with its line number and the reason. |
+| **Not started** | **Buttons that are only for show.** Export report, Run health check. |
+
+**One thing to know about who may add students:** only the exam cell administrator can add, edit or import candidates. Teachers can see the list but not change it. Before, a teacher was blocked from pasting a roster but could still add the same people one form at a time — the buttons and the server now agree.
 
 **One thing to know about logins:** when a login is renewed, the old renewal token is not cancelled — it keeps working until it runs out on its own. Cancelling it needs a bit more work on the server. Worth doing before real exams.
 

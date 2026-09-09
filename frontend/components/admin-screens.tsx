@@ -8,6 +8,7 @@ import { formatDate, formatDateTime, formatDuration, formatScore, formatTime, in
 import type { AuditSeverity, Computer, ConnectionStatus, ExamSession, ExamStatus, Lab, NewTestInput, QuestionType, Student, StudentExamStatus, Test } from "@/lib/types";
 import { buildMonitorRows, computeLabOccupancy, filterAuditEvents, summarizeMonitorRows, type AuditFilter } from "@/lib/selectors";
 import { EXAM_STATUS_LABEL, examBadgeTone, examStatusTone } from "@/lib/status";
+import { AddStudentDialog, ImportRosterDialog } from "./roster";
 import { Icon } from "./icons";
 import { Badge, Button, ButtonLink, Card, EmptyState, Field, LoadingState, Modal, PageHeader, Progress, Select, StatCard, StatusDot, TableShell } from "./ui";
 
@@ -478,6 +479,14 @@ export function StudentsScreen() {
   const [branch, setBranch] = useState("all");
   const [section, setSection] = useState("all");
 
+  const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const { refreshFromServer, currentUser } = useExam();
+
+  // Faculty read the roster; only the exam cell writes to it. Showing them
+  // buttons the server will refuse is worse than not offering them at all.
+  const canEditRegister = currentUser?.role === "ADMIN";
+
   const rows = useMemo(() => buildStudentRows(state.students, state.computers, state.labs), [state.students, state.computers, state.labs]);
   // Filter option values derived from the roster so they stay in sync with seed data (Req 8.3).
   const branches = useMemo(() => [...new Set(rows.map((r) => r.branch))].sort(), [rows]);
@@ -493,7 +502,11 @@ export function StudentsScreen() {
     return matchesSearch && (year === "all" || String(y) === year) && (branch === "all" || b === branch) && (section === "all" || student.section === section);
   });
 
-  return <><PageHeader eyebrow="Candidate management" title="Students" description="Review eligibility, registration, and lab assignment for every candidate." actions={<Button tone="secondary" icon="plus">Import roster</Button>}/>
+  return <><PageHeader eyebrow="Candidate management" title="Students" description="Review eligibility, registration, and lab assignment for every candidate." actions={canEditRegister ? <><Button tone="secondary" icon="file" onClick={() => setImporting(true)}>Import roster</Button><Button icon="plus" onClick={() => setAdding(true)}>Add candidate</Button></> : undefined}/>
+    {canEditRegister && <>
+      <AddStudentDialog open={adding} onClose={() => setAdding(false)} onAdded={() => { void refreshFromServer(); }}/>
+      <ImportRosterDialog open={importing} onClose={() => setImporting(false)} onImported={() => { void refreshFromServer(); }}/>
+    </>}
     <div className="toolbar split">
       <div className="search-box wide"><Icon name="search"/><input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search students by name or roll number" placeholder="Search by name or roll number"/></div>
       <div className="filter-group">

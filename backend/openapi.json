@@ -1275,6 +1275,52 @@
         "title": "HeartbeatRequest",
         "type": "object"
       },
+      "ImportOutcome": {
+        "description": "A row that could not be taken, and why.",
+        "properties": {
+          "line": {
+            "description": "Line number in the uploaded file, counting the header as 1.",
+            "title": "Line",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "registrationNo": {
+            "title": "Registrationno",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line",
+          "registrationNo",
+          "reason"
+        ],
+        "title": "ImportOutcome",
+        "type": "object"
+      },
+      "ImportSummary": {
+        "description": "What an import did.\n\nPartial by design: one duplicate in a roster of sixty should not cost the\nother fifty-nine.",
+        "properties": {
+          "created": {
+            "items": {
+              "$ref": "#/components/schemas/NewStudent"
+            },
+            "title": "Created",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/ImportOutcome"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
+        },
+        "title": "ImportSummary",
+        "type": "object"
+      },
       "LabOut": {
         "properties": {
           "building": {
@@ -1637,6 +1683,24 @@
           }
         },
         "title": "MultipleAnswer",
+        "type": "object"
+      },
+      "NewStudent": {
+        "description": "A candidate just created, with the one look at their password.\n\nReturned rather than stored in the clear, and never retrievable again: an\nadministrator distributes it, and a candidate who loses it needs a reset\nrather than a lookup.",
+        "properties": {
+          "student": {
+            "$ref": "#/components/schemas/StudentOut"
+          },
+          "temporaryPassword": {
+            "title": "Temporarypassword",
+            "type": "string"
+          }
+        },
+        "required": [
+          "student",
+          "temporaryPassword"
+        ],
+        "title": "NewStudent",
         "type": "object"
       },
       "OptionIn": {
@@ -2154,6 +2218,21 @@
         ],
         "title": "Role",
         "type": "string"
+      },
+      "RosterImportRequest": {
+        "properties": {
+          "csv": {
+            "description": "The file's contents, header row included.",
+            "minLength": 1,
+            "title": "Csv",
+            "type": "string"
+          }
+        },
+        "required": [
+          "csv"
+        ],
+        "title": "RosterImportRequest",
+        "type": "object"
       },
       "SaveAnswerRequest": {
         "properties": {
@@ -5333,6 +5412,7 @@
         ]
       },
       "post": {
+        "description": "Add one candidate. The password is shown here and nowhere else.\n\nAdministrative, like the bulk import below. Allowing faculty to add\ncandidates one at a time while refusing them the paste would not protect\nthe register \u2014 it would only make rewriting it tedious.",
         "operationId": "createStudent",
         "requestBody": {
           "content": {
@@ -5349,7 +5429,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StudentOut"
+                  "$ref": "#/components/schemas/NewStudent"
                 }
               }
             },
@@ -5366,7 +5446,59 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Create Student",
+        "tags": [
+          "directory"
+        ]
+      }
+    },
+    "/api/v1/students/import": {
+      "post": {
+        "description": "Create candidates from a spreadsheet export.\n\nAdministrators only, and partial by design: rows that cannot be taken are\nreported with a reason and a line number rather than sinking the file.",
+        "operationId": "importRoster",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RosterImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Roster",
         "tags": [
           "directory"
         ]
@@ -5374,6 +5506,7 @@
     },
     "/api/v1/students/{student_id}": {
       "patch": {
+        "description": "Edit a candidate, including blocking them from signing in.",
         "operationId": "updateStudent",
         "parameters": [
           {
@@ -5419,6 +5552,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Update Student",
         "tags": [
           "directory"

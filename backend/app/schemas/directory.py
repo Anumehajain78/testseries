@@ -80,3 +80,38 @@ class EnrolmentToken(Schema):
     lab_name: str = Field(alias="labName")
     token: str
     expires_at: datetime = Field(alias="expiresAt")
+
+
+class NewStudent(Schema):
+    """A candidate just created, with the one look at their password.
+
+    Returned rather than stored in the clear, and never retrievable again: an
+    administrator distributes it, and a candidate who loses it needs a reset
+    rather than a lookup.
+    """
+
+    student: StudentOut
+    temporary_password: str = Field(alias="temporaryPassword")
+
+
+class ImportOutcome(Schema):
+    """A row that could not be taken, and why."""
+
+    line: int = Field(description="Line number in the uploaded file, counting the header as 1.")
+    registration_no: str = Field(alias="registrationNo")
+    reason: str
+
+
+class ImportSummary(Schema):
+    """What an import did.
+
+    Partial by design: one duplicate in a roster of sixty should not cost the
+    other fifty-nine.
+    """
+
+    created: list[NewStudent] = Field(default_factory=list)
+    failed: list[ImportOutcome] = Field(default_factory=list)
+
+
+class RosterImportRequest(Schema):
+    csv: str = Field(min_length=1, description="The file's contents, header row included.")

@@ -9,7 +9,7 @@ from app import examples
 from app.api.deps import Admin, CurrentPrincipal, DbSession, Staff
 from app.core.security import TokenError, decode_token, issue_user_tokens, verify_secret
 from app.db.models import Student, User
-from app.services import machines, queries
+from app.services import directory, machines, queries
 from app.utils.clock import utcnow
 from app.schemas.audit import AuditEventOut
 from app.schemas.auth import (
@@ -24,7 +24,17 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.schemas.common import Page
-from app.schemas.directory import ComputerOut, EnrolmentToken, LabOut, StudentCreate, StudentOut, StudentUpdate
+from app.schemas.directory import (
+    ComputerOut,
+    EnrolmentToken,
+    ImportSummary,
+    LabOut,
+    NewStudent,
+    RosterImportRequest,
+    StudentCreate,
+    StudentOut,
+    StudentUpdate,
+)
 from app.schemas.enums import AuditCategory, AuditSeverity
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -167,15 +177,36 @@ async def list_students(
 
 
 @directory_router.post(
-    "/students", response_model=StudentOut, status_code=status.HTTP_201_CREATED, operation_id="createStudent"
+    "/students", response_model=NewStudent, status_code=status.HTTP_201_CREATED, operation_id="createStudent"
 )
-async def create_student(payload: StudentCreate) -> StudentOut:
-    return examples.STUDENT
+async def create_student(payload: StudentCreate, db: DbSession, _: Admin) -> NewStudent:
+    """Add one candidate. The password is shown here and nowhere else.
+
+    Administrative, like the bulk import below. Allowing faculty to add
+    candidates one at a time while refusing them the paste would not protect
+    the register — it would only make rewriting it tedious.
+    """
+    return directory.create_student(db, payload)
 
 
 @directory_router.patch("/students/{student_id}", response_model=StudentOut, operation_id="updateStudent")
-async def update_student(student_id: UUID, payload: StudentUpdate) -> StudentOut:
-    return examples.STUDENT
+async def update_student(
+    student_id: UUID, payload: StudentUpdate, db: DbSession, _: Admin
+) -> StudentOut:
+    """Edit a candidate, including blocking them from signing in."""
+    return directory.update_student(db, student_id, payload)
+
+
+@directory_router.post(
+    "/students/import", response_model=ImportSummary, operation_id="importRoster"
+)
+async def import_roster(payload: RosterImportRequest, db: DbSession, _: Admin) -> ImportSummary:
+    """Create candidates from a spreadsheet export.
+
+    Administrators only, and partial by design: rows that cannot be taken are
+    reported with a reason and a line number rather than sinking the file.
+    """
+    return directory.import_roster(db, payload.csv)
 
 
 @directory_router.get("/labs", response_model=list[LabOut], operation_id="listLabs")

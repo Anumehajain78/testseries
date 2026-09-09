@@ -11,12 +11,32 @@ because the engine is built from settings at import time.
 """
 
 import os
+from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 import pytest
 from sqlalchemy import create_engine, text
 
 TEST_DB_NAME = "exam_control_test"
+
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
+
+def _url_from_env_file() -> str | None:
+    """Read the developer's own database URL out of ``.env``.
+
+    pytest does not load ``.env``, and this file sets the variable before the
+    application can. A hardcoded fallback here drifts the moment the port
+    changes — and it drifts silently, because every database-backed test then
+    skips and the run still reports no failures.
+    """
+    if not ENV_FILE.exists():
+        return None
+    for line in ENV_FILE.read_text().splitlines():
+        name, _, value = line.partition("=")
+        if name.strip() == "EXAM_DATABASE_URL":
+            return value.strip().strip('"').strip("'") or None
+    return None
 
 
 def _admin_url(url: str) -> str:
@@ -32,9 +52,10 @@ def _test_url(url: str) -> str:
 
 
 # Whatever the developer's database is, the tests use a sibling of it.
-_source = os.environ.get(
-    "EXAM_DATABASE_URL",
-    "postgresql+psycopg://exam:exam_local_dev@localhost:5433/exam_control",
+_source = (
+    os.environ.get("EXAM_DATABASE_URL")
+    or _url_from_env_file()
+    or "postgresql+psycopg://exam:exam_local_dev@localhost:5432/exam_control"
 )
 os.environ["EXAM_DATABASE_URL"] = _test_url(_source)
 
