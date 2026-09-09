@@ -31,6 +31,7 @@ import type {
 
 const BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1").replace(/\/$/, "");
 const TOKEN_KEY = "northbridge-access-token";
+const REFRESH_KEY = "northbridge-refresh-token";
 const USER_KEY = "northbridge-user";
 
 export interface SignedInUser { id: string; role: string; fullName: string }
@@ -68,8 +69,28 @@ export function readToken(): string | null {
   }
 }
 
+export function readRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeRefreshToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(REFRESH_KEY, token);
+    else localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    // Non-fatal: renewal simply stops working for this page.
+  }
+}
+
 export function storeToken(token: string | null): void {
-  if (!token) storeUser(null);
+  if (!token) {
+    storeUser(null);
+    storeRefreshToken(null);
+  }
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);
@@ -79,7 +100,47 @@ export function storeToken(token: string | null): void {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * Renew the access token.
+ *
+ * Access tokens are short-lived on purpose, so this runs quietly in the
+ * background rather than showing anyone a sign-in form: being signed out
+ * during an examination is a worse outcome than a slightly longer session.
+ *
+ * Concurrent 401s share one attempt — a monitor with a socket and a poll in
+ * flight must not fire two renewals and have the second invalidate the first.
+ */
+let renewal: Promise<boolean> | null = null;
+
+async function renewAccess(): Promise<boolean> {
+  if (renewal) return renewal;
+
+  renewal = (async () => {
+    const refreshToken = readRefreshToken();
+    if (!refreshToken) return false;
+    try {
+      const response = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) return false;
+      const tokens = (await response.json()) as TokenPairDto;
+      storeToken(tokens.accessToken);
+      storeRefreshToken(tokens.refreshToken);
+      storeUser({ id: tokens.user.id, role: tokens.user.role, fullName: tokens.user.fullName });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      renewal = null;
+    }
+  })();
+
+  return renewal;
+}
+
+async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const token = readToken();
   const response = await fetch(`${BASE_URL}${path}`, {
     ...init,
@@ -89,9 +150,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
     cache: "no-store",
   });
+  if (response.status === 401 && !retried && (await renewAccess())) {
+    // The token had simply aged out. Renew once and repeat the request; only
+    // if renewal itself fails does the caller see a 401 and re-prompt.
+    return request<T>(path, init, true);
+  }
   if (!response.ok) {
-    // 401 means the token is missing or expired; the caller clears it and
-    // re-prompts rather than retrying into a loop.
     throw new ApiError(response.status, await describe(response));
   }
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
@@ -165,6 +229,7 @@ export async function signIn(email: string, password: string): Promise<TokenPair
   }
   const tokens = (await response.json()) as TokenPairDto;
   storeToken(tokens.accessToken);
+  storeRefreshToken(tokens.refreshToken);
   storeUser({ id: tokens.user.id, role: tokens.user.role, fullName: tokens.user.fullName });
   return tokens;
 }

@@ -132,7 +132,19 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh */
+        /**
+         * Refresh
+         * @description Exchange a refresh token for a fresh pair.
+         *
+         *     This exists so nobody is signed out during an examination. Access tokens
+         *     are deliberately short-lived; without renewal an invigilator would be
+         *     ejected part-way through a ninety-minute paper, which is a worse failure
+         *     than the one short lifetimes are guarding against.
+         *
+         *     The refresh token is rotated, not reused: each renewal returns a new one,
+         *     so a token captured from an old response stops being useful once the real
+         *     client renews again.
+         */
         post: operations["refreshToken"];
         delete?: never;
         options?: never;

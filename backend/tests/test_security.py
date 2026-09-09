@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.core.config import DEV_JWT_SECRET, Settings
+from app.core.config import DEV_JWT_SECRET, Settings, get_settings
 from app.core.security import (
     ACCESS,
     REFRESH,
@@ -130,3 +130,55 @@ class TestLiveness:
         # A workstation with a skewed clock must not be able to report itself
         # permanently online.
         assert connection_state(self.NOW + timedelta(hours=1), now=self.NOW) is ConnectionState.ONLINE
+
+
+class TestRenewalSafety:
+    """Properties that make short access tokens safe to renew.
+
+    Access tokens expire in thirty minutes, so renewal has to work — being
+    signed out part-way through a ninety-minute paper is a worse failure than
+    the one short lifetimes guard against. These cover what makes renewal safe
+    rather than merely convenient.
+    """
+
+    def test_an_access_token_cannot_be_exchanged_for_a_new_pair(self):
+        """The other direction of the type check. If a leaked access token
+        could renew itself, its short lifetime would mean nothing."""
+        access, _, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        with pytest.raises(TokenError):
+            decode_token(access, expected_type=REFRESH)
+
+    def test_a_machine_token_cannot_renew_a_person(self):
+        machine, _ = issue_machine_token("LAB1-PC-01", uuid.uuid4())
+        with pytest.raises(TokenError):
+            decode_token(machine, expected_type=REFRESH)
+
+    def test_a_refresh_token_carries_no_role(self):
+        """It only says who you are; the database says what you may do. A role
+        revoked since sign-in therefore takes effect at the next renewal."""
+        _, refresh, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        assert "role" not in decode_token(refresh, expected_type=REFRESH)
+
+    def test_every_issued_token_is_unique(self):
+        """Rotation is only real if the replacement differs. Two tokens minted
+        for one subject in the same second were once byte-identical, which
+        made rotating them a no-op."""
+        user_id = uuid.uuid4()
+        _, first, _ = issue_user_tokens(user_id, Role.FACULTY)
+        _, second, _ = issue_user_tokens(user_id, Role.FACULTY)
+        assert first != second
+        assert decode_token(first, expected_type=REFRESH)["jti"] != decode_token(
+            second, expected_type=REFRESH
+        )["jti"]
+
+    def test_the_refresh_token_outlives_the_access_token(self):
+        """Otherwise renewal expires before the thing it renews."""
+        settings = get_settings()
+        assert timedelta(hours=settings.refresh_token_hours) > timedelta(
+            minutes=settings.access_token_minutes
+        )
+
+    def test_a_refresh_token_outlasts_a_long_paper(self):
+        """Three hours covers a long examination plus overrun and a slow
+        start. Anything shorter reintroduces the failure this fixes."""
+        assert get_settings().refresh_token_hours >= 3

@@ -39,16 +39,22 @@ _source = os.environ.get(
 os.environ["EXAM_DATABASE_URL"] = _test_url(_source)
 
 
-@pytest.fixture(scope="session", autouse=True)
-def test_database():
-    """Create the test database, populate it, and drop it afterwards."""
+@pytest.fixture(scope="session")
+def database():
+    """Create the test database, populate it, and drop it afterwards.
+
+    Deliberately *not* autouse. Skipping at session scope would take the pure
+    unit tests down with it whenever Postgres happened to be stopped, and a
+    suite that reports "no failures" because it ran nothing is worse than one
+    that fails: only the tests that actually need a database should skip.
+    """
     admin = create_engine(_admin_url(_source), isolation_level="AUTOCOMMIT")
     try:
         with admin.connect() as connection:
             connection.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB_NAME}" WITH (FORCE)'))
             connection.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
     except Exception as exc:  # pragma: no cover - environment problem, not a test failure
-        pytest.skip(f"cannot reach Postgres to build a test database: {exc}")
+        pytest.skip(f"needs Postgres: {exc}")
 
     # Imported only now, so the engine picks up the overridden URL.
     from app.db.base import Base

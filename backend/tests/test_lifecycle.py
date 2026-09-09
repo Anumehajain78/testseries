@@ -19,7 +19,7 @@ API = "/api/v1"
 
 
 @pytest.fixture(scope="module")
-def staff() -> dict[str, str]:
+def staff(database) -> dict[str, str]:
     """A real seeded faculty credential.
 
     Obtained by logging in rather than minted locally: the role guard reads the

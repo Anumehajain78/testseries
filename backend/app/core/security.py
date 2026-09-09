@@ -7,7 +7,7 @@ and stops authorization logic leaking into token handling.
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 from argon2 import PasswordHasher
@@ -59,7 +59,11 @@ def _encode(claims: dict[str, Any], expires: timedelta) -> tuple[str, datetime]:
     settings = get_settings()
     now = datetime.now(UTC)
     expires_at = now + expires
-    payload = {**claims, "iat": now, "exp": expires_at}
+    # A unique id per token. Without it two tokens minted for the same subject
+    # in the same second are byte-identical, which would make refresh-token
+    # rotation a no-op — the "new" token would be the old one. It is also the
+    # handle a revocation list would need later.
+    payload = {**claims, "jti": str(uuid4()), "iat": now, "exp": expires_at}
     token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return token, expires_at
 

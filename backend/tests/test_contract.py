@@ -28,7 +28,7 @@ def schema() -> dict:
 
 
 @pytest.fixture(scope="module")
-def staff_headers() -> dict[str, str]:
+def staff_headers(database) -> dict[str, str]:
     """A real seeded faculty credential.
 
     The role guard reads the user back from the database, so a locally minted
@@ -100,7 +100,7 @@ class TestRoutesAnswer:
         response = client.get(f"{API}/exams", headers={"Authorization": "Bearer nonsense"})
         assert response.status_code == 401
 
-    def test_a_candidate_cannot_reach_the_admin_surface(self):
+    def test_a_candidate_cannot_reach_the_admin_surface(self, database):
         # Answer keys live behind these routes, so a STUDENT subject must be
         # refused even though it is a perfectly valid credential.
         students = client.post(
@@ -239,3 +239,66 @@ class TestSchemaHygiene:
         props = schema["components"]["schemas"]["ExamSummary"]
         assert "startsAt" not in props.get("required", [])
         assert "endsAt" not in props.get("required", [])
+
+
+@pytest.mark.usefixtures("database")
+class TestSessionRenewal:
+    """Access tokens are short-lived on purpose, so renewal has to work.
+
+    Being signed out part-way through a ninety-minute paper is a worse failure
+    than the one short lifetimes guard against.
+    """
+
+    def _sign_in(self) -> dict:
+        response = client.post(
+            f"{API}/auth/login",
+            json={"email": "anita.rao@northbridge.edu", "password": "examcontrol"},
+        )
+        if response.status_code != 200:
+            pytest.skip("no seeded database: run `python -m app.db.seed`")
+        return response.json()
+
+    def test_a_refresh_token_buys_a_working_access_token(self):
+        tokens = self._sign_in()
+        renewed = client.post(f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
+        assert renewed.status_code == 200, renewed.text
+
+        fresh = renewed.json()["accessToken"]
+        assert client.get(f"{API}/exams", headers={"Authorization": f"Bearer {fresh}"}).status_code == 200
+
+    def test_renewal_rotates_the_refresh_token(self):
+        """A token captured from an old response stops being the current one."""
+        tokens = self._sign_in()
+        renewed = client.post(
+            f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
+        ).json()
+        assert renewed["refreshToken"] != tokens["refreshToken"]
+
+    def test_renewal_returns_the_same_person(self):
+        tokens = self._sign_in()
+        renewed = client.post(
+            f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
+        ).json()
+        assert renewed["user"]["email"] == tokens["user"]["email"]
+        assert renewed["user"]["role"] == tokens["user"]["role"]
+
+    def test_an_access_token_cannot_be_used_to_renew(self):
+        """Otherwise a leaked access token would renew itself indefinitely,
+        and the short lifetime would mean nothing."""
+        tokens = self._sign_in()
+        response = client.post(f"{API}/auth/refresh", json={"refreshToken": tokens["accessToken"]})
+        assert response.status_code == 401
+
+    def test_a_garbage_refresh_token_is_refused(self):
+        assert client.post(f"{API}/auth/refresh", json={"refreshToken": "nonsense"}).status_code == 401
+
+    def test_a_refresh_token_naming_a_deleted_account_is_refused(self):
+        """The database decides, not the token: a disabled account must not be
+        able to renew its way back in."""
+        import uuid as _uuid
+
+        from app.core.security import issue_user_tokens
+
+        _, refresh_token, _ = issue_user_tokens(_uuid.uuid4(), Role.FACULTY)
+        response = client.post(f"{API}/auth/refresh", json={"refreshToken": refresh_token})
+        assert response.status_code == 401

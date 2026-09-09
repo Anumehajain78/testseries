@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app import examples
 from app.api.deps import CurrentPrincipal, DbSession, Staff
-from app.core.security import issue_user_tokens, verify_secret
+from app.core.security import TokenError, decode_token, issue_user_tokens, verify_secret
 from app.db.models import Student, User
 from app.services import queries
 from app.utils.clock import utcnow
@@ -53,15 +53,52 @@ async def login(payload: LoginRequest, db: DbSession) -> TokenPair:
     user.last_login_at = now
     db.commit()
 
-    access, refresh, expires_at = issue_user_tokens(user.id, user.role)
+    return _tokens_for(db, user)
+
+
+@auth_router.post("/refresh", response_model=TokenPair, operation_id="refreshToken")
+async def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
+    """Exchange a refresh token for a fresh pair.
+
+    This exists so nobody is signed out during an examination. Access tokens
+    are deliberately short-lived; without renewal an invigilator would be
+    ejected part-way through a ninety-minute paper, which is a worse failure
+    than the one short lifetimes are guarding against.
+
+    The refresh token is rotated, not reused: each renewal returns a new one,
+    so a token captured from an old response stops being useful once the real
+    client renews again.
+    """
+    try:
+        claims = decode_token(payload.refresh_token, expected_type="refresh")
+    except TokenError as exc:
+        # One message for expired, malformed and wrong-type alike.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again") from exc
+
+    try:
+        user = db.get(User, UUID(claims["sub"]))
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again") from exc
+
+    # The database decides, not the token: an account deleted or disabled since
+    # sign-in must not be able to renew its way back in.
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again")
+
+    return _tokens_for(db, user)
+
+
+def _tokens_for(db: DbSession, user: User) -> TokenPair:
+    """Build the pair returned by both sign-in and renewal."""
+    access, refresh_token, expires_at = issue_user_tokens(user.id, user.role)
     registration_no = db.scalar(
         select(Student.registration_no).where(Student.user_id == user.id)
     )
     return TokenPair(
         access_token=access,
-        refresh_token=refresh,
+        refresh_token=refresh_token,
         expires_at=expires_at,
-        server_time=now,
+        server_time=utcnow(),
         user=UserOut(
             id=user.id,
             email=user.email,
@@ -70,11 +107,6 @@ async def login(payload: LoginRequest, db: DbSession) -> TokenPair:
             registration_no=registration_no,
         ),
     )
-
-
-@auth_router.post("/refresh", response_model=TokenPair, operation_id="refreshToken")
-async def refresh(payload: RefreshRequest) -> TokenPair:
-    return examples.token_pair()
 
 
 @auth_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, operation_id="logout")

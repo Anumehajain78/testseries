@@ -24,7 +24,7 @@ def _token(email: str, client: TestClient) -> str | None:
 
 
 @pytest.fixture(scope="module")
-def client():
+def client(database):
     # The lifespan starts the broker, so the socket has something to subscribe
     # to; a bare TestClient would not.
     with TestClient(app) as running:

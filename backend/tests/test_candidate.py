@@ -27,7 +27,7 @@ def _login(email: str) -> dict[str, str] | None:
 
 
 @pytest.fixture(scope="module")
-def staff() -> dict[str, str]:
+def staff(database) -> dict[str, str]:
     headers = _login("anita.rao@northbridge.edu")
     if headers is None:
         pytest.skip("no seeded database: run `python -m app.db.seed`")
@@ -222,7 +222,7 @@ class TestDeadlineSweep:
         assert "ACTIVE" not in statuses, "the sweep left a session running"
         assert statuses <= {"SUBMITTED", "AUTO_SUBMITTED", "TERMINATED"}
 
-    def test_the_sweep_is_safe_to_run_repeatedly(self):
+    def test_the_sweep_is_safe_to_run_repeatedly(self, database):
         from app.db.session import SessionLocal
         from app.services.sweep import sweep_once
 
