@@ -21,6 +21,7 @@ type ExamContextValue = {
   hydrated: boolean;
   currentStudentId: string;
   createTest: (input: NewTestInput) => Promise<string>;
+  updateTest: (testId: string, input: NewTestInput) => Promise<void>;
   scheduleExam: (testId: string) => Promise<void>;
   startExam: (testId: string) => Promise<void>;
   answerQuestion: (testId: string, questionId: string, value: AnswerValue) => Promise<void>;
@@ -102,6 +103,7 @@ export function ExamProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createTest = useCallback(async (input: NewTestInput) => (await guard(() => api.createExam(input))).examId, [guard]);
+  const updateTest = useCallback((testId: string, input: NewTestInput) => guard(() => api.updateExam(testId, input)), [guard]);
   const scheduleExam = useCallback((testId: string) => guard(() => api.scheduleExam(testId)), [guard]);
   const startExam = useCallback((testId: string) => guard(() => api.startExam(testId)), [guard]);
   const answerQuestion = useCallback((testId: string, questionId: string, value: AnswerValue) => guard(() => api.saveAnswer(testId, questionId, value)), [guard]);
@@ -140,6 +142,7 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     currentStudentId: readUser()?.id ?? "",
     currentUser: readUser(),
     createTest,
+    updateTest,
     scheduleExam,
     startExam,
     answerQuestion,
@@ -149,7 +152,7 @@ export function ExamProvider({ children }: { children: ReactNode }) {
     dismissToast,
     refreshFromServer,
     signOut,
-  }), [snapshot, createTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, publishResults, dismissToast, refreshFromServer, signOut]);
+  }), [snapshot, createTest, updateTest, scheduleExam, startExam, answerQuestion, flagQuestion, submitExam, publishResults, dismissToast, refreshFromServer, signOut]);
 
   {
     if (phase === "error") {

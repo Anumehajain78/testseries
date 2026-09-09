@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useExam } from "@/app/providers";
 import { formatDate, formatDateTime, formatDuration, formatScore, formatTime, initials, percentage, statusLabel } from "@/lib/format";
-import type { AuditSeverity, Computer, ConnectionStatus, ExamSession, ExamStatus, Lab, NewTestInput, Student, StudentExamStatus, Test } from "@/lib/types";
+import type { AuditSeverity, Computer, ConnectionStatus, ExamSession, ExamStatus, Lab, NewTestInput, QuestionType, Student, StudentExamStatus, Test } from "@/lib/types";
 import { buildMonitorRows, computeLabOccupancy, filterAuditEvents, summarizeMonitorRows, type AuditFilter } from "@/lib/selectors";
 import { EXAM_STATUS_LABEL, examBadgeTone, examStatusTone } from "@/lib/status";
 import { Icon } from "./icons";
@@ -105,40 +105,112 @@ export function TestsScreen() {
   return <><PageHeader eyebrow="Assessment management" title="Assessments" description="Create, schedule, and supervise institutional examinations." actions={<ButtonLink href="/admin/tests/create" icon="plus">Create Test</ButtonLink>}/><div className="toolbar"><div className="tabs" role="group" aria-label="Filter assessments">{(["all","scheduled","live","completed","draft"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "All" : statusLabel(item)} <span>{item === "all" ? state.tests.length : state.tests.filter((t) => t.status === item).length}</span></button>)}</div></div><Card className="table-card">{tests.length ? <TestTable tests={tests} labs={state.labs}/> : <EmptyState title="No assessments in this view" description="Choose another status or create a new assessment." action={<ButtonLink href="/admin/tests/create" icon="plus">Create Test</ButtonLink>}/>}</Card></>;
 }
 
-type CreateQuestion = { prompt: string; options: string[]; correctOption: number; marks: number };
-const blankQuestion = (): CreateQuestion => ({ prompt: "", options: ["", "", "", ""], correctOption: 0, marks: 2 });
+// The three kinds of question the platform supports. The builder handles all
+// of them because it is also the editor: a form that only understood
+// multiple-choice would silently rewrite a written question as one when a
+// paper containing it was edited.
+type CreateQuestion = {
+  type: QuestionType;
+  prompt: string;
+  options: string[];
+  correctOptions: number[];
+  marks: number;
+};
+const blankQuestion = (): CreateQuestion => ({
+  type: "mcq", prompt: "", options: ["", "", "", ""], correctOptions: [0], marks: 2,
+});
 
-export function CreateTestScreen() {
-  const { state, createTest } = useExam();
+const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
+  mcq: "One correct answer",
+  multiple: "Several correct answers",
+  text: "Written answer",
+};
+
+// Split an ISO timestamp into the date and time inputs the form uses.
+function splitSchedule(iso: string | undefined): [string, string] {
+  if (!iso) return ["", ""];
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return ["", ""];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return [
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`,
+    `${pad(at.getHours())}:${pad(at.getMinutes())}`,
+  ];
+}
+
+/**
+ * The assessment form, used for both creating and editing.
+ *
+ * One component rather than two, because a second copy would drift: an editor
+ * missing a field the create form has would quietly drop it from the draft.
+ * Pass an `examId` to edit that exam; omit it to create a new one.
+ */
+export function CreateTestScreen({ examId }: { examId?: string } = {}) {
+  const { state, hydrated, createTest, updateTest } = useExam();
   const router = useRouter();
+  const editing = Boolean(examId);
+  const existing = examId ? state.tests.find((item) => item.id === examId) : undefined;
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [scheduledDate, scheduledTime] = splitSchedule(existing?.scheduledAt);
+
   // Basic Information (Req 4.2)
-  const [title, setTitle] = useState("");
-  const [code, setCode] = useState("");
-  const [course, setCourse] = useState("");
-  const [department, setDepartment] = useState("Computer Science");
-  const [description, setDescription] = useState("");
-  const [instructions, setInstructions] = useState("");
+  const [title, setTitle] = useState(existing?.title ?? "");
+  const [code, setCode] = useState(existing?.code ?? "");
+  const [course, setCourse] = useState(existing?.course ?? "");
+  const [department, setDepartment] = useState(existing?.department ?? "Computer Science");
+  const [description, setDescription] = useState(existing?.description ?? "");
+  const [instructions, setInstructions] = useState((existing?.instructions ?? []).join("\n"));
   // Schedule (Req 4.3)
-  const [date, setDate] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [duration, setDuration] = useState(45);
+  const [date, setDate] = useState(scheduledDate);
+  const [startTime, setStartTime] = useState(scheduledTime);
+  const [duration, setDuration] = useState(existing?.durationMinutes ?? 45);
   // Lab Assignment (Req 4.4)
-  const [labId, setLabId] = useState(state.labs[0]?.id ?? "");
+  const [labId, setLabId] = useState(existing?.labId ?? state.labs[0]?.id ?? "");
   // Students (Req 4.5)
-  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [selectedStudents, setSelectedStudents] = useState<string[]>(existing?.assignedStudentIds ?? []);
   // Exam Configuration (Req 4.6)
-  const [questionsPerStudent, setQuestionsPerStudent] = useState(0);
-  const [randomizeQuestions, setRandomizeQuestions] = useState(false);
-  const [randomizeOptions, setRandomizeOptions] = useState(false);
-  const [allowNavigation, setAllowNavigation] = useState(true);
-  const [autoSubmitOnExpiry, setAutoSubmitOnExpiry] = useState(true);
+  const [questionsPerStudent, setQuestionsPerStudent] = useState(existing?.config.questionsPerStudent ?? 0);
+  const [randomizeQuestions, setRandomizeQuestions] = useState(existing?.config.randomizeQuestions ?? false);
+  const [randomizeOptions, setRandomizeOptions] = useState(existing?.config.randomizeOptions ?? false);
+  const [allowNavigation, setAllowNavigation] = useState(existing?.config.allowNavigation ?? true);
+  const [autoSubmitOnExpiry, setAutoSubmitOnExpiry] = useState(existing?.config.autoSubmitOnExpiry ?? true);
   // Questions
-  const [questions, setQuestions] = useState<CreateQuestion[]>([blankQuestion()]);
+  const [questions, setQuestions] = useState<CreateQuestion[]>(
+    existing?.questions.length
+      ? existing.questions.map((question) => ({
+          type: question.type,
+          prompt: question.prompt,
+          options: question.type === "text" ? [] : [...question.options],
+          correctOptions: question.type === "multiple"
+            ? (question.correctOptions ?? [])
+            : [question.correctOption ?? 0],
+          marks: question.marks,
+        }))
+      : [blankQuestion()],
+  );
 
   const lab = state.labs.find((l) => l.id === labId);
   const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
   const updateQuestion = (index: number, patch: Partial<CreateQuestion>) => setQuestions((old) => old.map((q, i) => (i === index ? { ...q, ...patch } : q)));
+
+  // Switching type has to reshape the answer with it: a written question has
+  // no choices, and a one-answer question cannot keep several marked correct.
+  const changeQuestionType = (index: number, type: QuestionType) => setQuestions((old) => old.map((q, i) => {
+    if (i !== index) return q;
+    if (type === "text") return { ...q, type, options: [], correctOptions: [] };
+    const options = q.options.length ? q.options : ["", "", "", ""];
+    const correct = type === "mcq" ? q.correctOptions.slice(0, 1) : q.correctOptions;
+    return { ...q, type, options, correctOptions: correct.length ? correct : [0] };
+  }));
+
+  const toggleCorrect = (index: number, optionIndex: number) => setQuestions((old) => old.map((q, i) => {
+    if (i !== index) return q;
+    if (q.type === "mcq") return { ...q, correctOptions: [optionIndex] };
+    const next = q.correctOptions.includes(optionIndex)
+      ? q.correctOptions.filter((o) => o !== optionIndex)
+      : [...q.correctOptions, optionIndex].sort((a, b) => a - b);
+    return { ...q, correctOptions: next };
+  }));
   const toggleStudent = (id: string) => setSelectedStudents((old) => (old.includes(id) ? old.filter((s) => s !== id) : [...old, id]));
 
   // Combine date + start time into an ISO timestamp for the scheduled slot (Req 4.3).
@@ -172,7 +244,15 @@ export function CreateTestScreen() {
     // exceed the assigned venue's workstation count.
     if (!selectedStudents.length) next.students = "Assign at least one candidate.";
     else if (lab && selectedStudents.length > lab.capacity) next.students = `${lab.name} seats ${lab.capacity} candidates; ${selectedStudents.length} are selected.`;
-    questions.forEach((q, i) => { if (!q.prompt.trim() || q.options.some((o) => !o.trim())) next[`q${i}`] = "Complete the question and all four options."; });
+    questions.forEach((q, i) => {
+      if (!q.prompt.trim()) { next[`q${i}`] = "Write the question."; return; }
+      if (q.type === "text") return;  // written answers have no options
+      if (q.options.length < 2 || q.options.some((o) => !o.trim())) {
+        next[`q${i}`] = "Fill in every answer choice.";
+      } else if (!q.correctOptions.length) {
+        next[`q${i}`] = "Mark at least one choice as correct.";
+      }
+    });
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -182,6 +262,11 @@ export function CreateTestScreen() {
     event.preventDefault();
     if (!validate()) return;
     try {
+      if (editing && examId) {
+        await updateTest(examId, buildInput());
+        router.push(`/admin/tests/${examId}`);
+        return;
+      }
       const id = await createTest(buildInput());
       router.push(`/admin/tests/${id}`);
     } catch { /* the provider has already explained it */ }
@@ -196,7 +281,29 @@ export function CreateTestScreen() {
     } catch { /* the provider has already explained it */ }
   };
 
-  return <><PageHeader eyebrow="Assessments / New" title="Create assessment" description="Set up exam details, schedule, roster, and questions. The assessment will be saved as a draft."/><form className="create-form" onSubmit={submit} noValidate>
+  if (editing && !hydrated) return <LoadingState/>;
+  if (editing && !existing) {
+    return <EmptyState title="Assessment not found" description="It may have been removed." action={<ButtonLink href="/admin/tests">Back to assessments</ButtonLink>}/>;
+  }
+  // The server refuses edits once candidates are seated, because changing a
+  // paper or a roster underneath them would invalidate the seating. Say so
+  // here rather than letting the save fail.
+  if (editing && existing && existing.status !== "draft") {
+    return <EmptyState
+      icon="shield"
+      title="This assessment can no longer be edited"
+      description="Candidates have already been given seats for it. Only a draft can be changed."
+      action={<ButtonLink href={`/admin/tests/${examId}`}>Back to the assessment</ButtonLink>}
+    />;
+  }
+
+  return <><PageHeader
+    eyebrow={editing ? "Assessments / Edit" : "Assessments / New"}
+    title={editing ? "Edit assessment" : "Create assessment"}
+    description={editing
+      ? "Change any part of this draft. Nothing is live until you schedule it."
+      : "Set up exam details, schedule, roster, and questions. The assessment will be saved as a draft."}
+  /><form className="create-form" onSubmit={submit} noValidate>
     <Card>
       <div className="form-section-heading"><span>01</span><div><h2>Basic information</h2><p>Core details shown to candidates and invigilators.</p></div></div>
       <div className="form-grid">
@@ -251,7 +358,7 @@ export function CreateTestScreen() {
 
     <Card>
       <div className="form-section-heading"><span>06</span><div><h2>Questions</h2><p>Add objective questions, answer choices, and the correct response.</p></div></div>
-      <div className="question-builder">{questions.map((q, index) => <fieldset key={index} className="builder-item"><legend>Question {index + 1}</legend><label className="field"><span>Question prompt</span><textarea value={q.prompt} onChange={(e) => updateQuestion(index, { prompt: e.target.value })} placeholder="Enter a clear, unambiguous question"/></label><div className="option-builder">{q.options.map((option, optionIndex) => <label key={optionIndex} className="builder-option"><input type="radio" name={`correct-${index}`} checked={q.correctOption === optionIndex} onChange={() => updateQuestion(index, { correctOption: optionIndex })}/><input aria-label={`Option ${optionIndex + 1}`} value={option} onChange={(e) => updateQuestion(index, { options: q.options.map((old, i) => i === optionIndex ? e.target.value : old) })} placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}/></label>)}</div><Field label="Marks" type="number" min={1} value={q.marks} onChange={(e) => updateQuestion(index, { marks: Number(e.target.value) })}/>{errors[`q${index}`] && <p className="field-error">{errors[`q${index}`]}</p>}{questions.length > 1 && <Button type="button" tone="ghost" onClick={() => setQuestions((old) => old.filter((_, i) => i !== index))}>Remove question</Button>}</fieldset>)}</div>
+      <div className="question-builder">{questions.map((q, index) => <fieldset key={index} className="builder-item"><legend>Question {index + 1}</legend><label className="field"><span>Question prompt</span><textarea value={q.prompt} onChange={(e) => updateQuestion(index, { prompt: e.target.value })} placeholder="Enter a clear, unambiguous question"/></label><Select label="Answer type" value={q.type} onChange={(e) => changeQuestionType(index, e.target.value as QuestionType)}>{(["mcq","multiple","text"] as const).map((t) => <option key={t} value={t}>{QUESTION_TYPE_LABEL[t]}</option>)}</Select>{q.type === "text" ? <p className="field-hint">Written answers are marked by hand after the exam.</p> : <><p className="field-hint">{q.type === "multiple" ? "Tick every choice that is correct." : "Tick the one correct choice."}</p><div className="option-builder">{q.options.map((option, optionIndex) => <label key={optionIndex} className="builder-option"><input type={q.type === "multiple" ? "checkbox" : "radio"} name={`correct-${index}`} checked={q.correctOptions.includes(optionIndex)} onChange={() => toggleCorrect(index, optionIndex)} aria-label={`Option ${String.fromCharCode(65 + optionIndex)} is correct`}/><input aria-label={`Option ${optionIndex + 1}`} value={option} onChange={(e) => updateQuestion(index, { options: q.options.map((old, i) => i === optionIndex ? e.target.value : old) })} placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}/></label>)}</div></>}<Field label="Marks" type="number" min={1} value={q.marks} onChange={(e) => updateQuestion(index, { marks: Number(e.target.value) })}/>{errors[`q${index}`] && <p className="field-error">{errors[`q${index}`]}</p>}{questions.length > 1 && <Button type="button" tone="ghost" onClick={() => setQuestions((old) => old.filter((_, i) => i !== index))}>Remove question</Button>}</fieldset>)}</div>
       <Button type="button" tone="secondary" icon="plus" onClick={() => setQuestions((old) => [...old, blankQuestion()])}>Add another question</Button>
     </Card>
 
@@ -271,7 +378,7 @@ export function CreateTestScreen() {
       </dl>
     </Card>
 
-    <div className="form-footer"><Button type="button" tone="ghost" onClick={() => router.back()}>Cancel</Button><Button type="button" tone="secondary" onClick={saveDraft}>Save draft</Button><Button type="submit" icon="check">Create test</Button></div>
+    <div className="form-footer"><Button type="button" tone="ghost" onClick={() => router.back()}>Cancel</Button>{!editing && <Button type="button" tone="secondary" onClick={saveDraft}>Save draft</Button>}<Button type="submit" icon="check">{editing ? "Save changes" : "Create test"}</Button></div>
   </form></>;
 }
 
@@ -326,7 +433,7 @@ export function TestDetailScreen() {
       setConfirm(false);
     }
   };
-  return <><div className="breadcrumb"><Link href="/admin/tests">Assessments</Link><Icon name="chevron" size={14}/><span>{test.code}</span></div><PageHeader title={test.title} description={`${test.course} · ${test.department}`} actions={<>{test.status === "draft" && <Button icon="calendar" onClick={() => { scheduleExam(test.id).catch(() => {}); }}>Schedule assessment</Button>}{test.status === "scheduled" && <><Button icon="send" onClick={() => setConfirm(true)}>Start examination</Button><Button tone="secondary" icon="file" title="Editing opens in a later phase">Edit test</Button><ButtonLink href={`/admin/tests/${test.id}/monitor`} tone="ghost" icon="monitor">Monitor exam</ButtonLink></>}{test.status === "live" && <ButtonLink href={`/admin/tests/${test.id}/monitor`} icon="monitor">Open live monitor</ButtonLink>}</>}/><div className="detail-grid"><div className="detail-main"><Card className="detail-hero"><div><Badge tone={examBadgeTone(test.status)}>{statusLabel(test.status)}</Badge><span className="exam-code">{test.code}</span></div><div className="detail-facts"><div><Icon name="calendar"/><span><small>Start time</small><strong>{formatDateTime(test.scheduledAt)}</strong></span></div><div><Icon name="clock"/><span><small>Duration</small><strong>{test.durationMinutes} minutes</strong></span></div><div><Icon name="users"/><span><small>Students</small><strong>{test.assignedStudentIds.length} assigned</strong></span></div><div><Icon name="monitor"/><span><small>Lab</small><strong>{lab?.name ?? "Unassigned"}</strong></span></div><div><Icon name="file"/><span><small>Questions / marks</small><strong>{test.questions.length} / {test.totalMarks}</strong></span></div></div></Card><Card className="table-card"><div className="section-heading"><div><p className="eyebrow">Candidate roster</p><h2>Assigned students</h2></div><Badge tone="info">{roster.length} students</Badge></div>{roster.length ? <TableShell caption="Assigned candidates"><thead><tr><th>Roll number</th><th>Student</th><th>Computer</th><th>Connection</th><th>Exam status</th></tr></thead><tbody>{roster.map((row) => <tr key={row.studentId}><td>{row.registrationNo}</td><td className="table-title">{row.name}</td><td>{row.computerId}</td><td><StatusDot status={row.connection}/></td><td><Badge tone={examStatusTone(row.examStatus)}>{EXAM_STATUS_LABEL[row.examStatus]}</Badge></td></tr>)}</tbody></TableShell> : <EmptyState title="No students assigned" description="Edit the assessment to assign candidates before starting."/>}</Card><Card><div className="section-heading"><div><p className="eyebrow">Paper preview</p><h2>Questions</h2></div><Badge>{test.totalMarks} marks</Badge></div><ol className="preview-list">{test.questions.map((q) => <li key={q.id}><span>{q.prompt}</span><small>{q.marks} marks · {q.options.length} options</small></li>)}</ol></Card></div><aside className="detail-side"><Card><h2>Launch readiness</h2><div className="check-list"><p><Icon name="check"/> Question paper validated</p><p><Icon name="check"/> Candidate roster assigned</p><p><Icon name="check"/> {lab?.available} devices available</p><p className={lab?.status === "maintenance" ? "not-ready" : ""}><Icon name={lab?.status === "maintenance" ? "alert" : "check"}/> Lab environment {lab?.status}</p></div></Card><Card><h2>Instructions</h2><ul className="instruction-list">{test.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}</ul></Card></aside></div><Modal open={confirm} onClose={() => setConfirm(false)} title="Start this examination now?" description="This begins the examination for all connected students, opens the student entry gate, and starts the shared countdown. This action should only be taken when invigilators are ready." actions={<><Button tone="secondary" onClick={() => setConfirm(false)}>Cancel</Button><Button icon="send" onClick={launch}>Confirm & start</Button></>}><div className="launch-summary"><strong>{test.title}</strong><span>{test.assignedStudentIds.length} assigned students · {test.durationMinutes} minutes · {test.questions.length} questions · {lab?.name}</span></div></Modal></>;
+  return <><div className="breadcrumb"><Link href="/admin/tests">Assessments</Link><Icon name="chevron" size={14}/><span>{test.code}</span></div><PageHeader title={test.title} description={`${test.course} · ${test.department}`} actions={<>{test.status === "draft" && <><ButtonLink href={`/admin/tests/${test.id}/edit`} tone="secondary" icon="file">Edit test</ButtonLink><Button icon="calendar" onClick={() => { scheduleExam(test.id).catch(() => {}); }}>Schedule assessment</Button></>}{test.status === "scheduled" && <><Button icon="send" onClick={() => setConfirm(true)}>Start examination</Button><ButtonLink href={`/admin/tests/${test.id}/monitor`} tone="ghost" icon="monitor">Monitor exam</ButtonLink></>}{test.status === "live" && <ButtonLink href={`/admin/tests/${test.id}/monitor`} icon="monitor">Open live monitor</ButtonLink>}</>}/><div className="detail-grid"><div className="detail-main"><Card className="detail-hero"><div><Badge tone={examBadgeTone(test.status)}>{statusLabel(test.status)}</Badge><span className="exam-code">{test.code}</span></div><div className="detail-facts"><div><Icon name="calendar"/><span><small>Start time</small><strong>{formatDateTime(test.scheduledAt)}</strong></span></div><div><Icon name="clock"/><span><small>Duration</small><strong>{test.durationMinutes} minutes</strong></span></div><div><Icon name="users"/><span><small>Students</small><strong>{test.assignedStudentIds.length} assigned</strong></span></div><div><Icon name="monitor"/><span><small>Lab</small><strong>{lab?.name ?? "Unassigned"}</strong></span></div><div><Icon name="file"/><span><small>Questions / marks</small><strong>{test.questions.length} / {test.totalMarks}</strong></span></div></div></Card><Card className="table-card"><div className="section-heading"><div><p className="eyebrow">Candidate roster</p><h2>Assigned students</h2></div><Badge tone="info">{roster.length} students</Badge></div>{roster.length ? <TableShell caption="Assigned candidates"><thead><tr><th>Roll number</th><th>Student</th><th>Computer</th><th>Connection</th><th>Exam status</th></tr></thead><tbody>{roster.map((row) => <tr key={row.studentId}><td>{row.registrationNo}</td><td className="table-title">{row.name}</td><td>{row.computerId}</td><td><StatusDot status={row.connection}/></td><td><Badge tone={examStatusTone(row.examStatus)}>{EXAM_STATUS_LABEL[row.examStatus]}</Badge></td></tr>)}</tbody></TableShell> : <EmptyState title="No students assigned" description="Edit the assessment to assign candidates before starting."/>}</Card><Card><div className="section-heading"><div><p className="eyebrow">Paper preview</p><h2>Questions</h2></div><Badge>{test.totalMarks} marks</Badge></div><ol className="preview-list">{test.questions.map((q) => <li key={q.id}><span>{q.prompt}</span><small>{q.marks} marks · {q.options.length} options</small></li>)}</ol></Card></div><aside className="detail-side"><Card><h2>Launch readiness</h2><div className="check-list"><p><Icon name="check"/> Question paper validated</p><p><Icon name="check"/> Candidate roster assigned</p><p><Icon name="check"/> {lab?.available} devices available</p><p className={lab?.status === "maintenance" ? "not-ready" : ""}><Icon name={lab?.status === "maintenance" ? "alert" : "check"}/> Lab environment {lab?.status}</p></div></Card><Card><h2>Instructions</h2><ul className="instruction-list">{test.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}</ul></Card></aside></div><Modal open={confirm} onClose={() => setConfirm(false)} title="Start this examination now?" description="This begins the examination for all connected students, opens the student entry gate, and starts the shared countdown. This action should only be taken when invigilators are ready." actions={<><Button tone="secondary" onClick={() => setConfirm(false)}>Cancel</Button><Button icon="send" onClick={launch}>Confirm & start</Button></>}><div className="launch-summary"><strong>{test.title}</strong><span>{test.assignedStudentIds.length} assigned students · {test.durationMinutes} minutes · {test.questions.length} questions · {lab?.name}</span></div></Modal></>;
 }
 
 // Derive the academic branch and year shown in the students table (Req 8.1).

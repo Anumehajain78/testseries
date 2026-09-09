@@ -208,10 +208,31 @@ def update_exam(db: Session, exam_id: UUID, payload, *, actor_id: UUID, actor_la
         for student_id in payload.student_ids:
             db.add(ExamEnrolment(exam_id=exam_id, student_id=student_id))
 
-    if payload.question_ids is not None:
+    # Replacing the paper is safe here and only here: a draft has no sessions,
+    # so nobody is mid-answer on a question about to be swapped out.
+    if payload.question_ids is not None or payload.questions is not None:
         db.execute(ExamQuestion.__table__.delete().where(ExamQuestion.exam_id == exam_id))
-        for position, question_id in enumerate(payload.question_ids):
+        position = 0
+        for question_id in payload.question_ids or []:
             db.add(ExamQuestion(exam_id=exam_id, question_id=question_id, position=position))
+            position += 1
+        for authored in payload.questions or []:
+            question = Question(
+                id=uuid4(),
+                owner_id=actor_id,
+                course=authored.course or exam.course,
+                type=authored.type,
+                prompt=authored.prompt,
+                marks=authored.marks,
+            )
+            question.options = [
+                QuestionOption(id=uuid4(), position=index, body=option.body, is_correct=option.is_correct)
+                for index, option in enumerate(authored.options)
+            ]
+            db.add(question)
+            db.flush()
+            db.add(ExamQuestion(exam_id=exam_id, question_id=question.id, position=position))
+            position += 1
 
     _audit(
         db,

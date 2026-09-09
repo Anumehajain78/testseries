@@ -170,5 +170,12 @@ export interface NewTestInput {
   assignedStudentIds?: string[];
   instructions?: string[];
   config?: Partial<ExamConfig>;
-  questions: Array<Pick<Question, "prompt" | "options" | "correctOption" | "marks">>;
+  questions: Array<{
+    type: QuestionType;
+    prompt: string;
+    options: string[];
+    /** Indices of the correct choices. Empty for a written answer. */
+    correctOptions: number[];
+    marks: number;
+  }>;
 }

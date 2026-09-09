@@ -41,9 +41,14 @@ const nextSeq = (key: string) => {
   return next;
 };
 
-export const liveApi: ExamApi = {
-  async createExam(input: NewTestInput): Promise<CreateExamResult> {
-    const created = await writes.createExam({
+/**
+ * The wire shape of an exam.
+ *
+ * Shared by create and edit so the two cannot drift: an editor that quietly
+ * dropped a field the create form sends would corrupt drafts silently.
+ */
+function examPayload(input: NewTestInput) {
+  return {
       title: input.title,
       code: input.code,
       course: input.course,
@@ -55,14 +60,16 @@ export const liveApi: ExamApi = {
       labId: input.labId,
       studentIds: input.assignedStudentIds ?? [],
       // Authored inline; the server files them in the question bank so the
-      // paper is reusable rather than trapped in this one exam.
+      // paper is reusable rather than trapped in this one exam. The type is
+      // carried through rather than assumed — sending everything as
+      // multiple-choice would rewrite written questions on every edit.
       questions: input.questions.map((question) => ({
-        type: "mcq" as const,
+        type: question.type,
         prompt: question.prompt,
         marks: question.marks,
         options: question.options.map((body, index) => ({
           body,
-          isCorrect: index === question.correctOption,
+          isCorrect: question.correctOptions.includes(index),
         })),
       })),
       config: {
@@ -72,10 +79,22 @@ export const liveApi: ExamApi = {
         allowNavigation: input.config?.allowNavigation ?? true,
         autoSubmitOnExpiry: input.config?.autoSubmitOnExpiry ?? true,
       },
-    });
+    
+  };
+}
+
+export const liveApi: ExamApi = {
+  async createExam(input: NewTestInput): Promise<CreateExamResult> {
+    const created = await writes.createExam(examPayload(input));
     await refresh();
     return { examId: created.id };
   },
+
+  async updateExam(examId: string, input: NewTestInput) {
+    await writes.updateExam(examId, examPayload(input));
+    await refresh();
+  },
+
 
   async scheduleExam(examId: string) {
     await writes.scheduleExam(examId);

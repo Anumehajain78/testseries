@@ -260,3 +260,79 @@ class TestWriteGuards:
         access, _, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
         response = client.get(f"{API}/exams", headers={"Authorization": f"Bearer {access}"})
         assert response.status_code == 401
+
+
+class TestEditingADraft:
+    """Editing exists so a mistake in a draft can be corrected without
+    starting over. It stops the moment candidates are seated."""
+
+    def test_the_basics_can_be_changed(self, staff, world):
+        exam_id = make_draft(staff, world)
+        response = client.patch(
+            f"{API}/exams/{exam_id}",
+            json={"title": "Renamed Paper", "durationMinutes": 55, "course": "New Course"},
+            headers=staff,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["title"] == "Renamed Paper"
+        assert body["durationMinutes"] == 55
+        assert body["course"] == "New Course"
+
+    def test_the_paper_can_be_rewritten(self, staff, world):
+        """Without this the editor could change everything about an exam
+        except the questions, which is the thing most likely to be wrong."""
+        exam_id = make_draft(staff, world)
+        response = client.patch(
+            f"{API}/exams/{exam_id}",
+            json={"questions": [
+                {"type": "mcq", "prompt": "Replaced question one?", "marks": 4,
+                 "options": [{"body": "Yes", "isCorrect": True}, {"body": "No", "isCorrect": False}]},
+                {"type": "mcq", "prompt": "Replaced question two?", "marks": 6,
+                 "options": [{"body": "Yes", "isCorrect": True}, {"body": "No", "isCorrect": False}]},
+            ]},
+            headers=staff,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["questionCount"] == 2
+        assert body["totalMarks"] == 10
+        assert [q["prompt"] for q in body["questions"]] == [
+            "Replaced question one?", "Replaced question two?"
+        ]
+
+    def test_the_roster_can_be_changed(self, staff, world):
+        exam_id = make_draft(staff, world, students=2)
+        ids = [s["id"] for s in world["students"][:5]]
+        response = client.patch(f"{API}/exams/{exam_id}", json={"studentIds": ids}, headers=staff)
+        assert response.status_code == 200
+        assert response.json()["enrolledCount"] == 5
+
+    def test_fields_left_out_are_left_alone(self, staff, world):
+        """A partial edit must not blank everything the form did not send."""
+        exam_id = make_draft(staff, world, students=3)
+        before = client.get(f"{API}/exams/{exam_id}", headers=staff).json()
+        after = client.patch(f"{API}/exams/{exam_id}", json={"title": "Only the title"}, headers=staff).json()
+        assert after["title"] == "Only the title"
+        assert after["enrolledCount"] == before["enrolledCount"]
+        assert after["questionCount"] == before["questionCount"]
+        assert after["durationMinutes"] == before["durationMinutes"]
+
+    def test_a_seated_exam_cannot_be_edited(self, staff, world):
+        exam_id = make_draft(staff, world, students=2)
+        client.post(f"{API}/exams/{exam_id}/schedule", json={}, headers=staff)
+        response = client.patch(f"{API}/exams/{exam_id}", json={"title": "Too late"}, headers=staff)
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "not_editable"
+
+    def test_a_candidate_cannot_edit_an_exam(self, staff, world):
+        exam_id = make_draft(staff, world)
+        token = client.post(
+            f"{API}/auth/login",
+            json={"email": world["students"][0]["email"], "password": "examcontrol"},
+        ).json()["accessToken"]
+        response = client.patch(
+            f"{API}/exams/{exam_id}", json={"title": "Nope"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403

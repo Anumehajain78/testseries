@@ -29,6 +29,9 @@ export interface ExamApi {
   /** POST /exams — creates a DRAFT assessment. */
   createExam(input: NewTestInput): Promise<CreateExamResult>;
 
+  /** PATCH /exams/{id} — edit a draft. Refused once candidates are seated. */
+  updateExam(examId: string, input: NewTestInput): Promise<void>;
+
   /** POST /exams/{id}/schedule — DRAFT → SCHEDULED, seats the roster. */
   scheduleExam(examId: string): Promise<void>;
 

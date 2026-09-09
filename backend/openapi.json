@@ -957,6 +957,20 @@
             ],
             "title": "Questionids"
           },
+          "questions": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/QuestionIn"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questions"
+          },
           "scheduledAt": {
             "anyOf": [
               {

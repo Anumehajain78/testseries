@@ -204,6 +204,8 @@ export const candidateWrites = {
 
 export const writes = {
   createExam: (body: unknown) => post<ExamDetailDto>("/exams", body),
+  updateExam: (examId: string, body: unknown) =>
+    request<ExamDetailDto>(`/exams/${examId}`, { method: "PATCH", body: JSON.stringify(body) }),
   scheduleExam: (examId: string) => post<ExamDetailDto>(`/exams/${examId}/schedule`, {}),
   startExam: (examId: string, idempotencyKey: string) =>
     post<ExamWindowDto>(`/exams/${examId}/start`, { idempotencyKey }),

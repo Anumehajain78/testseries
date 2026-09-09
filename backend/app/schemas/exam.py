@@ -69,6 +69,10 @@ class ExamUpdate(Schema):
     lab_id: UUID | None = Field(default=None, alias="labId")
     student_ids: list[UUID] | None = Field(default=None, alias="studentIds")
     question_ids: list[UUID] | None = Field(default=None, alias="questionIds")
+    #: Questions rewritten in the editor. Supplying these replaces the paper,
+    #: mirroring how ExamCreate accepts them — without it the editor could
+    #: change everything about an exam except its questions.
+    questions: list[QuestionIn] | None = None
     config: ExamConfig | None = None
 
 

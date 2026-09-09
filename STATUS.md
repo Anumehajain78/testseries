@@ -56,7 +56,7 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | | |
 | --- | --- |
 | **Works** | **Staying logged in.** Logins renew by themselves in the background, so nobody is signed out mid-exam. |
-| **Half done** | **"Edit test" button does nothing.** The server side already works; only the button needs connecting. |
+| **Works** | **Editing a draft.** Change anything — title, schedule, lab, students, questions — until candidates are given seats. After that it is locked, and the screen says so. |
 | **Not started** | **Marking screen for written answers.** Needed before written questions can count. |
 | **Not started** | **Buttons that are only for show.** Import roster, Export report, Run health check. |
 | **Not started** | **Add and edit students from the screen.** They come from the seed file at the moment. |
@@ -82,9 +82,8 @@ Always planned for later. These are the difference between a working web app and
 
 ## What to do next
 
-1. **Connect the "Edit test" button.** The server part is done and tested.
-2. **Register lab computers and send real heartbeats.** A helper script currently pretends the computers are alive. Needed before the desktop app.
-3. **Build the desktop exam app.** The biggest remaining piece.
+1. **Register lab computers and send real heartbeats.** A helper script currently pretends the computers are alive. Needed before the desktop app.
+2. **Build the desktop exam app.** The biggest remaining piece.
 
 ---
 
@@ -105,7 +104,7 @@ Each step kept the app working, so nothing was ever half broken.
 
 ## Checks
 
-`161` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
+`167` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
 
 ```bash
 cd backend  && ./.venv/bin/python -m pytest -q

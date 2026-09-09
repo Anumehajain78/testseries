@@ -1168,6 +1168,8 @@ export interface components {
             labId?: string | null;
             /** Questionids */
             questionIds?: string[] | null;
+            /** Questions */
+            questions?: components["schemas"]["QuestionIn"][] | null;
             /** Scheduledat */
             scheduledAt?: string | null;
             /** Studentids */
