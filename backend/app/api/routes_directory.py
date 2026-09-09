@@ -6,10 +6,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
 
 from app import examples
-from app.api.deps import CurrentPrincipal, DbSession, Staff
+from app.api.deps import Admin, CurrentPrincipal, DbSession, Staff
 from app.core.security import TokenError, decode_token, issue_user_tokens, verify_secret
 from app.db.models import Student, User
-from app.services import queries
+from app.services import machines, queries
 from app.utils.clock import utcnow
 from app.schemas.audit import AuditEventOut
 from app.schemas.auth import (
@@ -24,7 +24,7 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.schemas.common import Page
-from app.schemas.directory import ComputerOut, LabOut, StudentCreate, StudentOut, StudentUpdate
+from app.schemas.directory import ComputerOut, EnrolmentToken, LabOut, StudentCreate, StudentOut, StudentUpdate
 from app.schemas.enums import AuditCategory, AuditSeverity
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -121,29 +121,24 @@ async def logout() -> None:
 
 
 @auth_router.post("/machine/enrol", response_model=MachineCredential, operation_id="enrolMachine")
-async def enrol_machine(payload: MachineEnrolRequest) -> MachineCredential:
-    """One-time workstation enrolment, performed by an administrator.
+async def enrol_machine(payload: MachineEnrolRequest, db: DbSession) -> MachineCredential:
+    """Claim a workstation using its lab's enrolment token.
 
-    Returns the machine secret exactly once; it is stored hashed.
+    Unauthenticated on purpose: a machine being set up has no credential yet,
+    which is the whole point of the enrolment token. Returns the machine secret
+    exactly once; only its hash is stored.
     """
-    return MachineCredential(
-        machine_id=payload.machine_id, secret="example-machine-secret", lab_id=examples.LAB_ID
-    )
+    return machines.enrol_machine(db, payload.enrolment_token, payload.machine_id, payload.hostname)
 
 
 @auth_router.post("/machine/token", response_model=MachineToken, operation_id="machineToken")
-async def machine_token(payload: MachineTokenRequest) -> MachineToken:
-    """Exchanges a machine credential for a short-lived token carrying
-    ``subject_type=machine``. Such a token may only reach heartbeat and event
-    endpoints."""
-    tokens = examples.token_pair()
-    return MachineToken(
-        access_token="example.machine.token",
-        expires_at=tokens.expires_at,
-        server_time=tokens.server_time,
-        machine_id=payload.machine_id,
-        lab_id=examples.LAB_ID,
-    )
+async def machine_token(payload: MachineTokenRequest, db: DbSession) -> MachineToken:
+    """Exchange a machine credential for a short-lived token.
+
+    The token carries ``subject_type=machine``, which authorization uses to
+    refuse it everywhere except heartbeat and event reporting.
+    """
+    return machines.issue_token(db, payload.machine_id, payload.secret)
 
 
 @auth_router.get("/me", response_model=Principal, operation_id="getCurrentPrincipal")
@@ -186,6 +181,27 @@ async def update_student(student_id: UUID, payload: StudentUpdate) -> StudentOut
 @directory_router.get("/labs", response_model=list[LabOut], operation_id="listLabs")
 async def list_labs(db: DbSession, _: Staff) -> list[LabOut]:
     return queries.list_labs(db)
+
+
+@directory_router.post(
+    "/labs/{lab_id}/enrolment-token",
+    response_model=EnrolmentToken,
+    operation_id="mintLabEnrolmentToken",
+)
+async def mint_enrolment_token(lab_id: UUID, db: DbSession, principal: Admin) -> EnrolmentToken:
+    """Mint an enrolment token for one laboratory.
+
+    Administrators only, and shown in the clear exactly once — it is stored
+    hashed, so it cannot be read back. Minting a new one does not disturb
+    machines already enrolled, because each holds its own secret by then.
+    """
+    token, lab = machines.mint_enrolment_token(db, lab_id)
+    return EnrolmentToken(
+        lab_id=lab.id,
+        lab_name=lab.name,
+        token=token,
+        expires_at=lab.enrolment_token_expires_at,
+    )
 
 
 @directory_router.get("/labs/{lab_id}/computers", response_model=list[ComputerOut], operation_id="listLabComputers")

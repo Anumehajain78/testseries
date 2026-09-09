@@ -36,16 +36,21 @@ EXAM_DB_PORT=5435 docker compose up -d
 export EXAM_DATABASE_URL=postgresql+psycopg://exam:exam_local_dev@localhost:5435/exam_control
 ```
 
-### Why the lab looks dead after a minute
+### Making the lab look alive
 
-Liveness is derived from `last_heartbeat_at`, so seeded workstations correctly
-go offline about ninety seconds after seeding: nothing is reporting yet. The
-heartbeat endpoint is still a stub pending machine enrolment, so until the lab
-client exists, stand in for it:
+Liveness is derived from `last_heartbeat_at`, so workstations go offline about
+ninety seconds after anything stops reporting. Machines report for themselves,
+using a credential they hold — so enrol a room once, then let it run:
 
 ```bash
-cd backend && ./.venv/bin/python -m scripts.simulate_heartbeats --watch
+cd backend
+./.venv/bin/python -m scripts.lab_client enrol --lab "Advanced Computing Lab"
+./.venv/bin/python -m scripts.lab_client room  --lab "Advanced Computing Lab"
 ```
+
+That stands in for the desktop client and talks to the same endpoints it will,
+so if enrolment or heartbeats break, this breaks too. Delete it when the real
+client exists.
 
 ## What is done and what is left
 

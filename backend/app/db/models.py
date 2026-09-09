@@ -129,6 +129,11 @@ class Lab(Base, TimestampMixin):
     status: Mapped[LabStatus] = mapped_column(
         pg_enum(LabStatus, "lab_status"), default=LabStatus.READY, nullable=False
     )
+    #: Shared secret an administrator types into each machine in this lab once.
+    #: Stored hashed and shown only at the moment it is minted, so a leaked
+    #: database does not hand out the ability to enrol a machine.
+    enrolment_token_hash: Mapped[str | None] = mapped_column(String(255))
+    enrolment_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invigilator_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("faculty.user_id", ondelete="SET NULL")
     )

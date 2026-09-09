@@ -13,8 +13,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import Candidate, CurrentPrincipal, DbSession, Staff
-from app.services import queries, sessions as session_service
+from app.api.deps import Candidate, CurrentPrincipal, DbSession, Machine, Staff
+from app.services import machines, queries, sessions as session_service
+from app.db.models import Exam
+from app.realtime.events import publish_soon
+from app.schemas.enums import RealtimeEvent as RT
 from app.schemas.common import ErrorDetail
 from app.schemas.exam import ExamSummary
 from app.schemas.session import (
@@ -157,13 +160,26 @@ async def get_session_detail(session_id: UUID, db: DbSession, _: Staff) -> Sessi
     status_code=status.HTTP_202_ACCEPTED,
     operation_id="reportSessionEvent",
 )
-async def report_session_event(session_id: UUID, payload: SessionEventRequest) -> dict[str, str]:
+async def report_session_event(
+    session_id: UUID, payload: SessionEventRequest, db: DbSession, principal: Machine
+) -> dict[str, str]:
     """Invigilation signal from the lab client. Machine subjects only.
 
-    Accepted and recorded as evidence; a focus loss raises a warning count but
-    is never treated on its own as proof of misconduct.
+    Recorded as evidence; a focus loss raises a warning count but is never
+    treated on its own as proof of misconduct — a person decides what a
+    pattern means.
     """
-    return {"status": "accepted"}
+    session, warned = machines.record_event(
+        db, principal.subject_id, session_id, payload.event, payload.occurred_at, payload.detail
+    )
+    if warned:
+        exam = db.get(Exam, session.exam_id)
+        publish_soon(
+            RT.WARNING, session.exam_id, exam.event_seq if exam else 0,
+            sessionId=str(session.id), studentId=str(session.student_id),
+            reason=payload.event, occurredAt=payload.occurred_at.isoformat(),
+        )
+    return {"status": "recorded"}
 
 
 @router.post(
@@ -171,10 +187,24 @@ async def report_session_event(session_id: UUID, payload: SessionEventRequest) -
     status_code=status.HTTP_202_ACCEPTED,
     operation_id="postHeartbeat",
 )
-async def post_heartbeat(machine_id: str, payload: HeartbeatRequest) -> dict[str, str]:
+async def post_heartbeat(
+    machine_id: str, payload: HeartbeatRequest, db: DbSession, principal: Machine
+) -> dict[str, str]:
     """Liveness ping from a workstation. Machine subjects only.
 
-    High volume by design - 60 machines in a lab. Held in Redis rather than
-    written as a row per beat.
+    High volume by design — sixty machines in a lab, every few seconds. A frame
+    is published only when the machine's liveness actually changes; pushing one
+    per beat would have every open monitor refetching several times a second.
     """
-    return {"status": "accepted"}
+    if principal.subject_id != machine_id:
+        # A machine reports for itself and nothing else.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "A machine may only report its own liveness")
+
+    changed, exam_id = machines.record_heartbeat(db, machine_id, payload.session_id)
+    if changed and exam_id:
+        exam = db.get(Exam, exam_id)
+        publish_soon(
+            RT.MACHINE_STATUS_CHANGED, exam_id, exam.event_seq if exam else 0,
+            machineId=machine_id,
+        )
+    return {"status": "recorded"}

@@ -316,6 +316,37 @@
         "title": "ConnectionState",
         "type": "string"
       },
+      "EnrolmentToken": {
+        "description": "A lab's enrolment token, returned the one time it is readable.\n\nAdministrators type this into each machine in the room once; the machine\nthen exchanges it for a permanent secret of its own, so this can expire\nwithout any workstation losing its identity.",
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "labId": {
+            "format": "uuid",
+            "title": "Labid",
+            "type": "string"
+          },
+          "labName": {
+            "title": "Labname",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "labId",
+          "labName",
+          "token",
+          "expiresAt"
+        ],
+        "title": "EnrolmentToken",
+        "type": "object"
+      },
       "ErrorDetail": {
         "description": "Uniform error body.\n\n``code`` is stable and machine-readable; ``message`` is for humans and may\nchange. Transition failures carry the states involved so the client can say\nsomething useful rather than 'something went wrong'.",
         "properties": {
@@ -3349,7 +3380,7 @@
     },
     "/api/v1/auth/machine/enrol": {
       "post": {
-        "description": "One-time workstation enrolment, performed by an administrator.\n\nReturns the machine secret exactly once; it is stored hashed.",
+        "description": "Claim a workstation using its lab's enrolment token.\n\nUnauthenticated on purpose: a machine being set up has no credential yet,\nwhich is the whole point of the enrolment token. Returns the machine secret\nexactly once; only its hash is stored.",
         "operationId": "enrolMachine",
         "requestBody": {
           "content": {
@@ -3391,7 +3422,7 @@
     },
     "/api/v1/auth/machine/token": {
       "post": {
-        "description": "Exchanges a machine credential for a short-lived token carrying\n``subject_type=machine``. Such a token may only reach heartbeat and event\nendpoints.",
+        "description": "Exchange a machine credential for a short-lived token.\n\nThe token carries ``subject_type=machine``, which authorization uses to\nrefuse it everywhere except heartbeat and event reporting.",
         "operationId": "machineToken",
         "requestBody": {
           "content": {
@@ -3501,7 +3532,7 @@
     },
     "/api/v1/computers/{machine_id}/heartbeat": {
       "post": {
-        "description": "Liveness ping from a workstation. Machine subjects only.\n\nHigh volume by design - 60 machines in a lab. Held in Redis rather than\nwritten as a row per beat.",
+        "description": "Liveness ping from a workstation. Machine subjects only.\n\nHigh volume by design \u2014 sixty machines in a lab, every few seconds. A frame\nis published only when the machine's liveness actually changes; pushing one\nper beat would have every open monitor refetching several times a second.",
         "operationId": "postHeartbeat",
         "parameters": [
           {
@@ -3550,6 +3581,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Post Heartbeat",
         "tags": [
           "sessions"
@@ -4361,6 +4397,55 @@
         ]
       }
     },
+    "/api/v1/labs/{lab_id}/enrolment-token": {
+      "post": {
+        "description": "Mint an enrolment token for one laboratory.\n\nAdministrators only, and shown in the clear exactly once \u2014 it is stored\nhashed, so it cannot be read back. Minting a new one does not disturb\nmachines already enrolled, because each holds its own secret by then.",
+        "operationId": "mintLabEnrolmentToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lab_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Lab Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrolmentToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mint Enrolment Token",
+        "tags": [
+          "directory"
+        ]
+      }
+    },
     "/api/v1/me/exams": {
       "get": {
         "description": "Assessments the authenticated candidate is enrolled in.",
@@ -4661,7 +4746,7 @@
     },
     "/api/v1/sessions/{session_id}/events": {
       "post": {
-        "description": "Invigilation signal from the lab client. Machine subjects only.\n\nAccepted and recorded as evidence; a focus loss raises a warning count but\nis never treated on its own as proof of misconduct.",
+        "description": "Invigilation signal from the lab client. Machine subjects only.\n\nRecorded as evidence; a focus loss raises a warning count but is never\ntreated on its own as proof of misconduct \u2014 a person decides what a\npattern means.",
         "operationId": "reportSessionEvent",
         "parameters": [
           {
@@ -4711,6 +4796,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Report Session Event",
         "tags": [
           "sessions"

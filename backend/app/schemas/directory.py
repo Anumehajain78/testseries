@@ -66,3 +66,17 @@ class LabOut(Schema):
     invigilator_name: str | None = Field(default=None, alias="invigilatorName")
     computer_count: int = Field(alias="computerCount")
     online_count: int = Field(alias="onlineCount")
+
+
+class EnrolmentToken(Schema):
+    """A lab's enrolment token, returned the one time it is readable.
+
+    Administrators type this into each machine in the room once; the machine
+    then exchanges it for a permanent secret of its own, so this can expire
+    without any workstation losing its identity.
+    """
+
+    lab_id: UUID = Field(alias="labId")
+    lab_name: str = Field(alias="labName")
+    token: str
+    expires_at: datetime = Field(alias="expiresAt")

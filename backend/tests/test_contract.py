@@ -122,12 +122,14 @@ class TestRoutesAnswer:
             json={"value": {"kind": "single", "option": 1}},
         ).status_code == 401
 
-    def test_heartbeat_is_accepted(self):
+    def test_heartbeat_needs_a_machine_credential(self):
+        """Liveness is reported by workstations, not by anyone who can reach
+        the network. The working path is exercised in the machine suite."""
         response = client.post(
             f"{API}/computers/LAB1-PC-01/heartbeat",
             json={"machineId": "LAB1-PC-01"},
         )
-        assert response.status_code == 202, response.text
+        assert response.status_code == 401
 
 
 class TestAnswerKeysCannotReachCandidates:

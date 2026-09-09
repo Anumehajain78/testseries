@@ -6,7 +6,7 @@ A plain checklist of the whole project.
 - **Half done** — partly working
 - **Not started** — not built yet
 
-**8 of 14 main phases finished.**
+**9 of 14 main phases finished.**
 
 ---
 
@@ -22,6 +22,7 @@ All of this runs for real. The server does the work, not the browser.
 | **Works** | **Make a test.** Add questions, pick a lab, pick students. Saved as a draft first. |
 | **Works** | **Schedule it.** Every student is given a computer automatically. You can see who is ready before you start. |
 | **Works** | **Press Start.** All students enter together. The server sets the start and end time. |
+| **Works** | **Register lab computers.** Each machine is enrolled once with a room code, then holds its own identity and reports in by itself. |
 | **Works** | **Watch the room live.** Who is online, answering, submitted, or dropped off. Updates by itself. |
 | **Works** | **Results and activity log.** Marks, ranking, and a record of what happened. |
 
@@ -71,9 +72,8 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 
 Always planned for later. These are the difference between a working web app and a real exam hall system.
 
-- **Register lab computers** — each machine gets its own identity.
 - **Desktop exam app (Tauri)** — the real lock down. A browser alone cannot stop Alt+Tab.
-- **Cheating signals** — reporting when a student leaves the exam window. The server can already store these; nothing sends them yet.
+- **Cheating signals from the desktop app** — the server records them now, but only a desktop app can actually notice a student switching away.
 - **Coding questions** — running student code safely, with time and memory limits.
 - **Load testing** — 60 students in one lab, then 200 across labs.
 - **Install on the college network.**
@@ -82,8 +82,7 @@ Always planned for later. These are the difference between a working web app and
 
 ## What to do next
 
-1. **Register lab computers and send real heartbeats.** A helper script currently pretends the computers are alive. Needed before the desktop app.
-2. **Build the desktop exam app.** The biggest remaining piece.
+1. **Build the desktop exam app.** The biggest remaining piece, and now unblocked — the machine side of the server is done and it can enrol like any other client.
 
 ---
 
@@ -104,7 +103,7 @@ Each step kept the app working, so nothing was ever half broken.
 
 ## Checks
 
-`167` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
+`190` server tests and `20` app tests, all passing. Types, code style and the production build are clean.
 
 ```bash
 cd backend  && ./.venv/bin/python -m pytest -q

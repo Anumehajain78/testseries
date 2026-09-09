@@ -73,9 +73,11 @@ export interface paths {
         put?: never;
         /**
          * Enrol Machine
-         * @description One-time workstation enrolment, performed by an administrator.
+         * @description Claim a workstation using its lab's enrolment token.
          *
-         *     Returns the machine secret exactly once; it is stored hashed.
+         *     Unauthenticated on purpose: a machine being set up has no credential yet,
+         *     which is the whole point of the enrolment token. Returns the machine secret
+         *     exactly once; only its hash is stored.
          */
         post: operations["enrolMachine"];
         delete?: never;
@@ -95,9 +97,10 @@ export interface paths {
         put?: never;
         /**
          * Machine Token
-         * @description Exchanges a machine credential for a short-lived token carrying
-         *     ``subject_type=machine``. Such a token may only reach heartbeat and event
-         *     endpoints.
+         * @description Exchange a machine credential for a short-lived token.
+         *
+         *     The token carries ``subject_type=machine``, which authorization uses to
+         *     refuse it everywhere except heartbeat and event reporting.
          */
         post: operations["machineToken"];
         delete?: never;
@@ -171,8 +174,9 @@ export interface paths {
          * Post Heartbeat
          * @description Liveness ping from a workstation. Machine subjects only.
          *
-         *     High volume by design - 60 machines in a lab. Held in Redis rather than
-         *     written as a row per beat.
+         *     High volume by design — sixty machines in a lab, every few seconds. A frame
+         *     is published only when the machine's liveness actually changes; pushing one
+         *     per beat would have every open monitor refetching several times a second.
          */
         post: operations["postHeartbeat"];
         delete?: never;
@@ -447,6 +451,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/labs/{lab_id}/enrolment-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint Enrolment Token
+         * @description Mint an enrolment token for one laboratory.
+         *
+         *     Administrators only, and shown in the clear exactly once — it is stored
+         *     hashed, so it cannot be read back. Minting a new one does not disturb
+         *     machines already enrolled, because each holds its own secret by then.
+         */
+        post: operations["mintLabEnrolmentToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/exams": {
         parameters: {
             query?: never;
@@ -589,8 +617,9 @@ export interface paths {
          * Report Session Event
          * @description Invigilation signal from the lab client. Machine subjects only.
          *
-         *     Accepted and recorded as evidence; a focus loss raises a warning count but
-         *     is never treated on its own as proof of misconduct.
+         *     Recorded as evidence; a focus loss raises a warning count but is never
+         *     treated on its own as proof of misconduct — a person decides what a
+         *     pattern means.
          */
         post: operations["reportSessionEvent"];
         delete?: never;
@@ -868,6 +897,30 @@ export interface components {
          * @enum {string}
          */
         ConnectionState: "online" | "warning" | "offline";
+        /**
+         * EnrolmentToken
+         * @description A lab's enrolment token, returned the one time it is readable.
+         *
+         *     Administrators type this into each machine in the room once; the machine
+         *     then exchanges it for a permanent secret of its own, so this can expire
+         *     without any workstation losing its identity.
+         */
+        EnrolmentToken: {
+            /**
+             * Expiresat
+             * Format: date-time
+             */
+            expiresAt: string;
+            /**
+             * Labid
+             * Format: uuid
+             */
+            labId: string;
+            /** Labname */
+            labName: string;
+            /** Token */
+            token: string;
+        };
         /**
          * ErrorDetail
          * @description Uniform error body.
@@ -2919,6 +2972,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ComputerOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mintLabEnrolmentToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lab_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrolmentToken"];
                 };
             };
             /** @description Validation Error */

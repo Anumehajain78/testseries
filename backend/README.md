@@ -119,10 +119,9 @@ or a future endpoint forgets:
 
 ## Not in scope yet
 
-Machine enrolment is still stubbed, so the heartbeat endpoint accepts and
-discards. Until the lab client exists, `scripts/simulate_heartbeats.py` stands
-in for it by writing liveness directly — delete it when the client sends real
-heartbeats.
+`scripts/lab_client.py` stands in for the desktop client. It goes through the
+real endpoints — enrol, exchange a secret for a token, report — so it proves
+the path rather than faking the result. Delete it when the real client exists.
 
 Text answers score zero pending human marking rather than being counted wrong,
 and there is no marking interface. That is deliberate: silently marking an
