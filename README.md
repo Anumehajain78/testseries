@@ -47,6 +47,10 @@ client exists, stand in for it:
 cd backend && ./.venv/bin/python -m scripts.simulate_heartbeats --watch
 ```
 
+## What is done and what is left
+
+See [STATUS.md](STATUS.md) — a plain checklist of every part of the project.
+
 ## Layout
 
 | Path | What it is |
