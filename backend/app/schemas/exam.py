@@ -7,7 +7,7 @@ from pydantic import Field, model_validator
 
 from app.schemas.common import Schema
 from app.schemas.enums import ExamStatus
-from app.schemas.question import QuestionIn, QuestionOut
+from app.schemas.question import QuestionIn, QuestionOut, TestCaseIn
 
 
 class ExamConfig(Schema):
@@ -129,6 +129,24 @@ class ExamStartRequest(Schema):
 
 class ExamCancelRequest(Schema):
     reason: str = Field(min_length=3, max_length=500)
+
+
+class TestCaseCorrection(Schema):
+    """Replacement test cases for a coding question, after the exam is over.
+
+    The reason is required and not decorative: this changes marks candidates
+    may already have been given, so the audit trail has to say why and who.
+    """
+
+    reason: str = Field(min_length=3, max_length=500)
+    tests: list["TestCaseIn"] = Field(min_length=1)
+
+
+class TestCaseCorrectionResult(Schema):
+    cases: int = Field(description="Test cases the question now has.")
+    cleared: int = Field(
+        description="Marks set back to unmarked, for the runner to redo under the corrected cases.",
+    )
 
 
 class ExamWindow(Schema):

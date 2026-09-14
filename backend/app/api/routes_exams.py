@@ -14,6 +14,8 @@ from app.services import coding, commands, queries, sessions as session_service
 from app.schemas.common import ErrorDetail, Page
 from app.schemas.enums import ExamStatus
 from app.schemas.exam import (
+    TestCaseCorrection,
+    TestCaseCorrectionResult,
     ExamCancelRequest,
     ExamCreate,
     ExamDetail,
@@ -182,6 +184,42 @@ def runtime_capabilities(_: Staff) -> RuntimeCapabilities:
     business.
     """
     return RuntimeCapabilities(coding_sandbox=sandbox_available() is not None)
+
+
+@router.patch(
+    "/{exam_id}/questions/{question_id}/tests",
+    response_model=TestCaseCorrectionResult,
+    responses=ILLEGAL_TRANSITION,
+    operation_id="correctTestCases",
+)
+def correct_test_cases(
+    exam_id: UUID,
+    question_id: UUID,
+    payload: TestCaseCorrection,
+    db: DbSession,
+    principal: Staff,
+) -> TestCaseCorrectionResult:
+    """Correct a coding question's test cases after the examination is over.
+
+    The only edit a finished paper accepts, and the narrowest one that is any
+    use: a case with the wrong expected output marks a whole cohort against an
+    answer that was never right, and without this the wrong marks stand.
+
+    Every mark for the question is cleared rather than recomputed here, so the
+    runner re-marks them under the corrected cases within the minute. Marks
+    produced by a key that no longer exists should not be on a screen while
+    that happens.
+    """
+    result = coding.correct_test_cases(
+        db,
+        exam_id,
+        question_id,
+        payload.tests,
+        reason=payload.reason,
+        actor_id=UUID(principal.subject_id),
+        actor_label="Exam Cell",
+    )
+    return TestCaseCorrectionResult(**result)
 
 
 @router.get(

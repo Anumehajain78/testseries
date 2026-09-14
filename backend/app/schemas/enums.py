@@ -144,6 +144,11 @@ class AuditEventType(StrEnum):
     AUTO_SUBMISSION = "AUTO_SUBMISSION"
     SESSION_TERMINATED = "SESSION_TERMINATED"
     RESULTS_PUBLISHED = "RESULTS_PUBLISHED"
+    #: A coding question's test cases were corrected after the exam finished,
+    #: which changes marks candidates may already have been given. Recorded
+    #: with the reason, because it is the one edit allowed to a paper that is
+    #: no longer a draft.
+    TEST_CASES_CORRECTED = "TEST_CASES_CORRECTED"
 
 
 class LabStatus(StrEnum):

@@ -167,7 +167,8 @@
           "SUBMISSION",
           "AUTO_SUBMISSION",
           "SESSION_TERMINATED",
-          "RESULTS_PUBLISHED"
+          "RESULTS_PUBLISHED",
+          "TEST_CASES_CORRECTED"
         ],
         "title": "AuditEventType",
         "type": "string"
@@ -3504,6 +3505,51 @@
         "title": "SubmitRequest",
         "type": "object"
       },
+      "TestCaseCorrection": {
+        "description": "Replacement test cases for a coding question, after the exam is over.\n\nThe reason is required and not decorative: this changes marks candidates\nmay already have been given, so the audit trail has to say why and who.",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/TestCaseIn"
+            },
+            "minItems": 1,
+            "title": "Tests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reason",
+          "tests"
+        ],
+        "title": "TestCaseCorrection",
+        "type": "object"
+      },
+      "TestCaseCorrectionResult": {
+        "properties": {
+          "cases": {
+            "description": "Test cases the question now has.",
+            "title": "Cases",
+            "type": "integer"
+          },
+          "cleared": {
+            "description": "Marks set back to unmarked, for the runner to redo under the corrected cases.",
+            "title": "Cleared",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cases",
+          "cleared"
+        ],
+        "title": "TestCaseCorrectionResult",
+        "type": "object"
+      },
       "TestCaseIn": {
         "description": "One test case for a coding question. Faculty scope only.",
         "properties": {
@@ -4906,6 +4952,85 @@
           }
         ],
         "summary": "Get Exam Monitor",
+        "tags": [
+          "exams"
+        ]
+      }
+    },
+    "/api/v1/exams/{exam_id}/questions/{question_id}/tests": {
+      "patch": {
+        "description": "Correct a coding question's test cases after the examination is over.\n\nThe only edit a finished paper accepts, and the narrowest one that is any\nuse: a case with the wrong expected output marks a whole cohort against an\nanswer that was never right, and without this the wrong marks stand.\n\nEvery mark for the question is cleared rather than recomputed here, so the\nrunner re-marks them under the corrected cases within the minute. Marks\nproduced by a key that no longer exists should not be on a screen while\nthat happens.",
+        "operationId": "correctTestCases",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exam_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Exam Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "question_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Question Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestCaseCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCaseCorrectionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            },
+            "description": "The exam is not in a state that permits this transition."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Correct Test Cases",
         "tags": [
           "exams"
         ]

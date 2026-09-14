@@ -482,3 +482,149 @@ class TestAServerFaultIsNotACandidatesFault:
         report = coding.run_answer(question, tests, "raise SystemExit(1)")
         assert report["incomplete"] is False
         assert report["marks"] == 0.0
+
+
+class TestCorrectingATestCaseAfterTheExam:
+    """The one edit a finished paper accepts.
+
+    A test case with the wrong expected output marks a whole cohort against an
+    answer that was never right. Refusing every edit to a finished exam is a
+    defensible rule right up to the moment it protects a mistake, so this
+    opening exists — and these pin how narrow it is.
+    """
+
+    def _completed_exam_with_a_marked_answer(self, staff, world):
+        """Sit the exam, submit a correct program, mark it, then end the exam."""
+        marking = TestMarking()
+        question_id, session_id = marking._answer(
+            staff, world, "a, b = map(int, input().split())\nprint(a + b)"
+        )
+        with SessionLocal() as db:
+            coding.grade_session(db, session_id)
+            exam_id = db.execute(
+                select(ExamSession.exam_id).where(ExamSession.id == session_id)
+            ).scalar_one()
+            # End it the way the deadline sweep would.
+            from app.db.models import Exam
+            from app.schemas.enums import ExamStatus
+
+            exam = db.get(Exam, exam_id)
+            exam.status = ExamStatus.COMPLETED
+            db.commit()
+        return exam_id, question_id, session_id
+
+    CORRECTED = [
+        {"stdin": "2 3\n", "expectedStdout": "5", "hidden": False, "weight": 1},
+        {"stdin": "-5 1\n", "expectedStdout": "-4", "hidden": True, "weight": 1},
+    ]
+
+    @needs_sandbox
+    def test_the_cases_are_replaced_and_the_marks_are_cleared(self, staff, world, database):
+        """Cleared rather than recomputed in the request. Those marks came from
+        a key that no longer exists, so the paper goes back to unmarked and the
+        runner redoes it — a results screen saying "awaiting marking" for a
+        moment is true, one showing the old marks is not."""
+        exam_id, question_id, session_id = self._completed_exam_with_a_marked_answer(staff, world)
+
+        response = client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={"reason": "The second case expected the wrong sign.", "tests": self.CORRECTED},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json() == {"cases": 2, "cleared": 1}
+
+        with SessionLocal() as db:
+            answer = db.get(Answer, {"session_id": session_id, "question_id": question_id})
+            assert answer.awarded_marks is None
+            assert answer.run_report is None
+
+    @needs_sandbox
+    def test_the_runner_re_marks_it_under_the_corrected_cases(self, staff, world, database):
+        exam_id, question_id, session_id = self._completed_exam_with_a_marked_answer(staff, world)
+        client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={"reason": "Corrected.", "tests": self.CORRECTED},
+        )
+        with SessionLocal() as db:
+            coding.grade_session(db, session_id)
+            answer = db.get(Answer, {"session_id": session_id, "question_id": question_id})
+            # Two cases now, both of which the program passes.
+            assert float(answer.awarded_marks) == 10.0
+            assert answer.run_report["total"] == 2
+
+    @needs_sandbox
+    def test_it_is_written_to_the_audit_trail_with_the_reason(self, staff, world, database):
+        """It changes marks people may already have been shown, which is
+        exactly the kind of act that has to leave a record."""
+        exam_id, question_id, _ = self._completed_exam_with_a_marked_answer(staff, world)
+        client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={"reason": "Expected output had a stray space.", "tests": self.CORRECTED},
+        )
+        events = client.get(f"{API}/audit?limit=20", headers=staff).json()["items"]
+        entry = next(e for e in events if e["event"] == "TEST_CASES_CORRECTED")
+        assert "stray space" in entry["detail"]
+        assert entry["severity"] == "WARNING"
+
+    def test_a_live_exam_is_refused(self, staff, world, database):
+        """Changing the key while candidates are still answering is a worse
+        version of the problem this fixes, and there is no hurry: marks are
+        awarded after the paper is submitted anyway."""
+        exam_id = make_exam(staff, world)
+        client.post(f"{API}/exams/{exam_id}/schedule", headers=staff, json={})
+        client.post(
+            f"{API}/exams/{exam_id}/start", headers=staff,
+            json={"idempotencyKey": f"live-correct-{exam_id}"},
+        )
+        detail = client.get(f"{API}/exams/{exam_id}", headers=staff).json()
+        question_id = detail["questions"][0]["id"]
+        response = client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={"reason": "Too late now.", "tests": self.CORRECTED},
+        )
+        assert response.status_code == 409
+
+    def test_a_reason_is_required(self, staff, world, database):
+        exam_id, question_id, _ = self._completed_exam_with_a_marked_answer(staff, world)
+        response = client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={"reason": "", "tests": self.CORRECTED},
+        )
+        assert response.status_code == 422
+
+    def test_removing_every_case_is_refused(self, staff, world, database):
+        """A coding question with no cases can never be scored at all."""
+        exam_id, question_id, _ = self._completed_exam_with_a_marked_answer(staff, world)
+        response = client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={"reason": "Clearing them out.", "tests": []},
+        )
+        assert response.status_code == 422
+
+    def test_a_candidate_cannot_correct_anything(self, staff, world, database):
+        exam_id, question_id, _ = self._completed_exam_with_a_marked_answer(staff, world)
+        headers = _login("aarav.mehta@northbridge.edu")
+        response = client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=headers,
+            json={"reason": "Marking myself up.", "tests": self.CORRECTED},
+        )
+        assert response.status_code == 403
+
+    def test_nothing_else_about_the_paper_can_be_changed_this_way(self, staff, world, database):
+        """The opening is for test cases and nothing else. Editing the paper of
+        a finished exam is still refused, which is what stops this becoming a
+        way to rewrite what candidates were asked."""
+        exam_id, _, _ = self._completed_exam_with_a_marked_answer(staff, world)
+        response = client.patch(
+            f"{API}/exams/{exam_id}",
+            headers=staff,
+            json={"title": "Rewritten after the fact"},
+        )
+        assert response.status_code == 409

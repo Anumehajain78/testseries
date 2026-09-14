@@ -433,6 +433,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exams/{exam_id}/questions/{question_id}/tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Correct Test Cases
+         * @description Correct a coding question's test cases after the examination is over.
+         *
+         *     The only edit a finished paper accepts, and the narrowest one that is any
+         *     use: a case with the wrong expected output marks a whole cohort against an
+         *     answer that was never right, and without this the wrong marks stand.
+         *
+         *     Every mark for the question is cleared rather than recomputed here, so the
+         *     runner re-marks them under the corrected cases within the minute. Marks
+         *     produced by a key that no longer exists should not be on a screen while
+         *     that happens.
+         */
+        patch: operations["correctTestCases"];
+        trace?: never;
+    };
     "/api/v1/exams/{exam_id}/results": {
         parameters: {
             query?: never;
@@ -984,7 +1013,7 @@ export interface components {
          *     warning count; it is never treated as proof of anything on its own.
          * @enum {string}
          */
-        AuditEventType: "LOGIN" | "LOGOUT" | "EXAM_CREATED" | "EXAM_SCHEDULED" | "EXAM_STARTED" | "EXAM_ENDED" | "EXAM_CANCELLED" | "SESSION_CHECKED_IN" | "CONNECTION_LOST" | "CONNECTION_RESTORED" | "FOCUS_LOST" | "FOCUS_RESTORED" | "EXAM_CLIENT_CLOSED" | "ANSWER_SAVED" | "SUBMISSION" | "AUTO_SUBMISSION" | "SESSION_TERMINATED" | "RESULTS_PUBLISHED";
+        AuditEventType: "LOGIN" | "LOGOUT" | "EXAM_CREATED" | "EXAM_SCHEDULED" | "EXAM_STARTED" | "EXAM_ENDED" | "EXAM_CANCELLED" | "SESSION_CHECKED_IN" | "CONNECTION_LOST" | "CONNECTION_RESTORED" | "FOCUS_LOST" | "FOCUS_RESTORED" | "EXAM_CLIENT_CLOSED" | "ANSWER_SAVED" | "SUBMISSION" | "AUTO_SUBMISSION" | "SESSION_TERMINATED" | "RESULTS_PUBLISHED" | "TEST_CASES_CORRECTED";
         /**
          * AuditSeverity
          * @enum {string}
@@ -2578,6 +2607,32 @@ export interface components {
             idempotencyKey?: string | null;
         };
         /**
+         * TestCaseCorrection
+         * @description Replacement test cases for a coding question, after the exam is over.
+         *
+         *     The reason is required and not decorative: this changes marks candidates
+         *     may already have been given, so the audit trail has to say why and who.
+         */
+        TestCaseCorrection: {
+            /** Reason */
+            reason: string;
+            /** Tests */
+            tests: components["schemas"]["TestCaseIn"][];
+        };
+        /** TestCaseCorrectionResult */
+        TestCaseCorrectionResult: {
+            /**
+             * Cases
+             * @description Test cases the question now has.
+             */
+            cases: number;
+            /**
+             * Cleared
+             * @description Marks set back to unmarked, for the runner to redo under the corrected cases.
+             */
+            cleared: number;
+        };
+        /**
          * TestCaseIn
          * @description One test case for a coding question. Faculty scope only.
          */
@@ -3379,6 +3434,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MonitorSnapshot"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    correctTestCases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exam_id: string;
+                question_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestCaseCorrection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCaseCorrectionResult"];
+                };
+            };
+            /** @description The exam is not in a state that permits this transition. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetail"];
                 };
             };
             /** @description Validation Error */

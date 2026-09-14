@@ -16,10 +16,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from uuid import uuid4
+
+from fastapi import HTTPException, status
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import Answer, ExamQuestion, ExamSession, Question, QuestionTest
+from app.db.models import Answer, Exam, ExamQuestion, ExamSession, Question, QuestionTest
 from app.domain.sandbox import (
     DEFAULT_MEMORY_LIMIT_MB,
     DEFAULT_TIME_LIMIT_MS,
@@ -28,7 +31,14 @@ from app.domain.sandbox import (
     run_python,
     sandbox_available,
 )
-from app.schemas.enums import QuestionType
+from app.schemas.enums import (
+    AuditCategory,
+    AuditEventType,
+    AuditSeverity,
+    ExamStatus,
+    QuestionType,
+)
+from app.services.commands import _audit
 
 
 def normalise(output: str) -> str:
@@ -307,3 +317,117 @@ def list_reports(db: Session, exam_id: UUID) -> list["CodingReport"]:
             )
         )
     return reports
+
+
+def correct_test_cases(
+    db: Session,
+    exam_id: UUID,
+    question_id: UUID,
+    cases: list,
+    *,
+    reason: str,
+    actor_id: UUID,
+    actor_label: str,
+) -> dict:
+    """Fix a coding question's test cases after the examination has finished.
+
+    The only edit a paper accepts once it stops being a draft, and it exists
+    because the alternative is worse. A test case with the wrong expected
+    output marks an entire cohort against an answer that was never right; if
+    that cannot be corrected, the wrong marks stand for ever. Refusing every
+    edit is a defensible rule right up to the moment it protects a mistake.
+
+    So the opening is deliberately narrow:
+
+    * Only a coding question's cases. Not the prompt, not the marks, not the
+      roster, not the window — changing any of those after candidates have sat
+      the paper would rewrite what they were asked, rather than correct how it
+      was judged.
+    * Only once the exam is over. Changing the key while candidates are still
+      answering is a worse version of the same problem, and there is no hurry:
+      marks are awarded afterwards anyway.
+    * Only with a reason, written to the audit trail. This changes marks people
+      may already have been shown, which is exactly the kind of act that has to
+      leave a record naming whoever did it.
+
+    Every existing mark for the question is cleared, not recomputed here. That
+    is the honest state: those marks were produced by a key that no longer
+    exists, so the papers go back to unmarked and the runner re-marks them
+    within the minute. A results screen showing "awaiting marking" for a moment
+    is true; one showing marks from a question that has since been corrected is
+    not.
+    """
+    exam = db.get(Exam, exam_id)
+    if exam is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Exam not found")
+    if exam.status is not ExamStatus.COMPLETED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Test cases can only be corrected once the examination has finished. "
+            f"This one is {exam.status.value}.",
+        )
+
+    link = db.scalar(
+        select(ExamQuestion).where(
+            ExamQuestion.exam_id == exam_id, ExamQuestion.question_id == question_id
+        )
+    )
+    question = db.get(Question, question_id)
+    if link is None or question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That question is not on this exam")
+    if question.type is not QuestionType.CODING:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Only a coding question has test cases.",
+        )
+    if not cases:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "A coding question needs at least one test case, or it can never be scored.",
+        )
+
+    # Cleared and flushed before the replacements are added. Assigning the list
+    # in one go lets SQLAlchemy order the inserts before the deletes, and the
+    # new case at position 0 then collides with the old one.
+    question.tests.clear()
+    db.flush()
+
+    question.tests = [
+        QuestionTest(
+            id=uuid4(),
+            position=index,
+            stdin=case.stdin,
+            expected_stdout=case.expected_stdout,
+            hidden=case.hidden,
+            weight=case.weight,
+        )
+        for index, case in enumerate(cases)
+    ]
+
+    # Back to unmarked. The runner picks them up on its next pass.
+    cleared = db.execute(
+        update(Answer)
+        .where(
+            Answer.question_id == question_id,
+            Answer.session_id.in_(
+                select(ExamSession.id).where(ExamSession.exam_id == exam_id)
+            ),
+        )
+        .values(awarded_marks=None, run_report=None, marked_by=None, marked_at=None)
+    ).rowcount
+
+    _audit(
+        db,
+        event=AuditEventType.TEST_CASES_CORRECTED,
+        category=AuditCategory.SYSTEM,
+        severity=AuditSeverity.WARNING,
+        detail=(
+            f"Test cases corrected on a coding question in {exam.title}; "
+            f"{cleared} mark(s) cleared for re-marking. Reason: {reason}"
+        ),
+        actor_label=actor_label,
+        actor_id=actor_id,
+        exam_id=exam_id,
+    )
+    db.commit()
+    return {"cases": len(question.tests), "cleared": cleared}
