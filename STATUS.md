@@ -6,7 +6,7 @@ A plain checklist of the whole project.
 - **Half done** — partly working
 - **Not started** — not built yet
 
-**9 of 14 main phases finished.**
+**11 of 14 main phases finished.**
 
 ---
 
@@ -63,6 +63,7 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | **Works** | **Publish results.** Marks stay hidden until the exam cell releases them, one assessment at a time. Until now there was no way to release them at all — every candidate saw "scores withheld" for ever. |
 | **Works** | **Export report.** Downloads the released marks as a spreadsheet. Withheld marks are left out rather than written as zero. |
 | **Works** | **Run health check.** Reads what each workstation last reported and says, lab by lab, how many are online, how many have gone quiet, and how many have never reported at all. No button on the screens is fake any more. |
+| **Works** | **Put it on the college network.** One command — `./deploy/lan-server.sh` — works out this machine's address, sets up its secrets, and starts everything so lab computers can reach it by typing that address. |
 
 **One thing to know about running it for real:** start the server with several
 workers — `uvicorn app.main:app --workers 8`. One worker serves requests one at
@@ -74,7 +75,7 @@ failures; with eight, all 200 got in, the slowest in about three seconds.
 
 **One thing to know about who may add students:** only the exam cell administrator can add, edit or import candidates. Teachers can see the list but not change it. Before, a teacher was blocked from pasting a roster but could still add the same people one form at a time — the buttons and the server now agree.
 
-**One thing to know about logins:** when a login is renewed, the old renewal token is not cancelled — it keeps working until it runs out on its own. Cancelling it needs a bit more work on the server. Worth doing before real exams.
+**One thing to know about logins:** renewing a login now cancels the old renewal token, so a stolen one stops working the moment the real user renews. Two devices stay separate — renewing on one does not sign the other out. One loose end: signing out ends the session on the server, but the screens do not call that yet, so signing out is still only local.
 
 **One thing to know about speed:** the app used to reload everything after every change — 18 requests to learn that one exam's status moved. Now a change to one assessment re-reads only that assessment: 4 requests instead of 18. This matters most on the live monitor, which refreshes every few seconds while an exam is running. Creating a new assessment still reloads everything, because a new one has to appear in the list.
 
@@ -91,16 +92,19 @@ needs the server started with several workers — see above.
 
 Always planned for later. These are the difference between a working web app and a real exam hall system.
 
-- **Desktop exam app (Tauri)** — the real lock down. A browser alone cannot stop Alt+Tab.
-- **Cheating signals from the desktop app** — the server records them now, but only a desktop app can actually notice a student switching away.
+- **Desktop exam app (Tauri)** — *written but never built.* The whole app is in `desktop/`, but this machine cannot compile it: it needs system libraries only an administrator can install. See `desktop/README.md` for the one command, and expect first-build errors.
+- **Cheating signals from the desktop app** — *blocked, and it needs a decision.* The desktop app can see a student switching away, but it has no way to ask the server which exam session the machine is showing, so it cannot report it. Heartbeats and the floor plan work; these events pile up on the machine and go nowhere. Someone has to choose how the machine learns its session.
 - **Coding questions** — running student code safely, with time and memory limits.
-- **Install on the college network** — putting it on the LAN so real lab machines reach it.
 
 ---
 
 ## What to do next
 
-1. **Build the desktop exam app.** The biggest remaining piece, and now unblocked — the machine side of the server is done and it can enrol like any other client.
+1. **Install the build tools and compile the desktop app.** It is written; nobody has ever built it. `desktop/README.md` has the command.
+2. **Decide how a lab machine learns which exam session it is showing.** Until then the desktop app can watch for cheating but cannot report it.
+3. **Make signing out call the server**, so a session really ends rather than only being forgotten by the browser.
+
+**Honest about the lock down:** the desktop app keeps the exam fullscreen, blocks the developer tools, and reports attempts to close it. It does **not** stop Alt+Tab, Ctrl+Alt+Del, killing the program, a phone on the desk, or a second screen. No software on the machine can. Invigilators still matter.
 
 ---
 
