@@ -1,0 +1,27 @@
+# Two crates, and the split is deliberate.
+#
+# `core` is the protocol — enrolment, tokens, heartbeats, the invigilation event
+# queue — and depends on nothing but crates.io. It compiles and its tests run on
+# any machine with a Rust toolchain.
+#
+# `src-tauri` is the window: fullscreen, always-on-top, no devtools. Building it
+# needs webkit and dbus development headers, which only root can install, so on
+# a machine without them this crate cannot be built at all.
+#
+# Before the split that meant *nothing* in the desktop client had ever been
+# compiled. Now the half that has to be right — the half that decides whether an
+# invigilator's floor plan is telling the truth — is compiled and tested
+# everywhere, and only the window waits for a machine with the headers.
+[workspace]
+resolver = "2"
+members = ["core", "src-tauri"]
+
+[profile.release]
+# An examination client that panics mid-paper should die loudly on the
+# workstation rather than unwind into a half-locked window that still covers
+# the screen but no longer reports anything.
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

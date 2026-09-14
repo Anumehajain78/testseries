@@ -1,0 +1,32 @@
+[package]
+name = "exam-lab-core"
+version = "0.1.0"
+description = "How a lab workstation talks to the examination server"
+edition = "2021"
+rust-version = "1.77.2"
+
+# Deliberately free of Tauri, and of anything needing system development
+# headers. This half is the protocol — enrolment, tokens, heartbeats, the event
+# queue — and it is the half that has to be right, because a mistake here is a
+# workstation the invigilator's floor plan says is fine when it is not.
+#
+# Keeping it separate means it compiles and its tests run on any machine with a
+# Rust toolchain, including one where the GUI shell cannot be built for want of
+# webkit and dbus headers that need root to install. Before this split, nothing
+# in the desktop client had ever been compiled at all.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# rustls rather than the system OpenSSL: a lab image that is a year behind on
+# security updates should not decide whether the client can reach the server.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["time", "sync", "rt"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+url = "2"
+log = "0.4"
+hostname = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tempfile = "3"

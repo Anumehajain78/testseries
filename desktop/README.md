@@ -11,21 +11,44 @@ browser uses.
 
 ---
 
-## Status: this has never been compiled
+## Status: half of it is compiled and tested, half has never been built
 
-There is no Rust toolchain and no `libwebkit2gtk` on the machine this was
-written on, and installing either needs `sudo`. So:
+The crate is split in two, and the split is the point.
 
-* `cargo check`, `cargo build`, `cargo fmt --check` and `cargo clippy` have
-  **not** been run. Not once.
-* The code has been reviewed by hand against the Tauri 2, reqwest 0.12 and
-  chrono 0.4 APIs, but expect to fix compile errors on the first real build.
-* Nothing here has been run against a live server, so the enrolment,
-  heartbeat and event paths are correct *by reading*, not by observation.
+**`core/` — compiled, linted, formatted, and tested.** Enrolment, tokens,
+heartbeats, the invigilation event queue and the credential store. It depends
+on nothing but crates.io, so it builds anywhere a Rust toolchain does:
 
-The Python reference client (`backend/scripts/lab_client.py`) exercises the
-same three endpoints and does work — if this disagrees with that, that is
-right.
+```sh
+cargo test -p exam-lab-core        # 10 tests
+cargo clippy --all-targets         # clean
+cargo fmt --check                  # clean
+```
+
+It has also been run against a live examination server, which is the part that
+matters. `core/tests/against_a_real_server.rs` enrols a workstation, trades the
+secret for a token, sends a heartbeat, and files all four invigilation events —
+verified landing in the server's audit trail as `FOCUS_LOST`,
+`FOCUS_RESTORED`, `EXAM_CLIENT_CLOSED` and `CONNECTION_RESTORED`. Those tests
+are `#[ignore]`d by default because they need a server; the header of that file
+says how to run them, and why they need `--test-threads=1`.
+
+**`src-tauri/` — never compiled.** The window: fullscreen, always-on-top, no
+devtools. Building it needs webkit and dbus development headers, and installing
+those needs root, which was not available where this was written. On a machine
+with them:
+
+```sh
+sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev \
+  libayatana-appindicator3-dev build-essential curl wget file libdbus-1-dev pkg-config
+cargo check -p exam-lab-client
+```
+
+Expect compile errors on that first build. The window code has been reviewed by
+hand against the Tauri 2 API but never put through a compiler, and reading is
+not the same as building — the core crate needed a missing dependency and a
+signature fix the moment it was actually compiled, and that half had been
+reviewed just as carefully.
 
 Three specific things to check first, because they are the least certain:
 
@@ -144,35 +167,33 @@ refused on the role.
 
 ---
 
-## The gap: the client cannot learn its own session id
+## How the client learns its session id — and why it works this way
 
-`POST /sessions/{session_id}/events` needs a session UUID, and **there is no
-endpoint that gives a machine one.** `GET /me/sessions` needs a candidate
-token; a machine subject is refused everywhere except heartbeat and events. The
-heartbeat body accepts an optional `sessionId` but never returns one.
+`POST /sessions/{session_id}/events` needs a session UUID, and **no endpoint
+gives a machine one.** `GET /me/sessions` needs a candidate's token; a machine
+subject is refused everywhere except heartbeat and events. The heartbeat body
+accepts an optional `sessionId` but never returns one.
 
-So the candidate interface has to tell the desktop client, over IPC:
+That separation is deliberate and worth keeping. A workstation and the person
+sitting at it are different subjects, and letting a machine credential resolve
+a candidate's session would be a much worse trade than passing one identifier.
+
+So the candidate interface hands it over. It already knows — it is showing that
+paper — and the page publishes it:
 
 ```js
-window.__TAURI__.core.invoke("bind_session", { sessionId });
+window.__EXAM_SESSION_ID__ = sessionId;   // frontend/lib/lab-client.ts
 ```
 
-The injected guard script polls for `window.__EXAM_SESSION_ID__`, a
-`<meta name="exam-session-id">` tag, or `sessionStorage.examSessionId`, and
-calls `bind_session` with whichever it finds. **None of those three exists in
-the web application today.** Nothing in `frontend/` was changed — that was out
-of scope for this work — so as things stand:
+The injected guard script polls for it and calls `bind_session` over IPC. The
+frontend sets it on entering an examination and **removes it on leaving**: a
+stale id would have the client filing a candidate's focus events against a
+paper they had already submitted.
 
-* heartbeats work, and the machine shows correctly on the laboratory floor plan;
-* the *session's* `last_heartbeat_at` is not stamped, so the monitor's
-  connection column stays derived from the candidate's own browser;
-* focus and close events are queued on the desktop side (up to 256, oldest
-  dropped) and **never reach the server**.
-
-Either the web application starts exposing the session id, or the API grows
-something like `GET /computers/{machine_id}/session` for a machine subject.
-Until one of those happens the invigilation half of this client is wired up and
-silent.
+The name is spelled in two places — `frontend/lib/lab-client.ts` and
+`src-tauri/src/lockdown.rs` — and a test on the frontend side pins the exact
+string, because the two drifting means invigilation stops working with nothing
+anywhere to say so.
 
 The URL is not a workaround: `/student/exam/[id]` carries an *exam* id, and
 there is no machine-accessible way to turn one into a session id.

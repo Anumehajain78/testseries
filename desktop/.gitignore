@@ -16,3 +16,6 @@ src-tauri/icons/StoreLogo.png
 # A workstation's own credential, if anyone ever points EXAM_LAB_CLIENT_HOME
 # at the working tree while testing.
 enrolment.json
+
+# Cargo build output. The lockfile is committed; the artefacts are not.
+target/

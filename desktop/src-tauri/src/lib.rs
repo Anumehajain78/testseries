@@ -6,12 +6,13 @@
 //! a candidate actually sees is the existing web application, loaded from the
 //! LAN server — this binary is a frame around it, not a second copy of it.
 
-mod api;
-mod client;
 mod commands;
-mod config;
 mod lockdown;
 mod windows;
+
+// The protocol half, which builds without the GUI toolchain. Re-exported under
+// the old paths so the window code reads the same as before the split.
+pub use exam_lab_core::{api, client, config, events};
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

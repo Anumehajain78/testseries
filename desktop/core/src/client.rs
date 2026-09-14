@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::api::{Api, ApiError};
 use crate::config::Enrolment;
-use crate::lockdown::events;
+use crate::events;
 
 /// `EXAM_HEARTBEAT_INTERVAL_SECONDS` in `backend/.env.example`. The server
 /// calls a machine 'warning' at 30s and 'offline' at 90s, so this leaves room
@@ -101,7 +101,10 @@ impl LabClient {
         if changed {
             log::info!("bound to session {session_id}");
             let client = Arc::clone(self);
-            tauri::async_runtime::spawn(async move { client.flush_pending().await });
+            // tokio directly rather than tauri::async_runtime, which is tokio
+            // wearing a different name. Using it here would drag the whole GUI
+            // toolchain into the one crate that does not need it.
+            tokio::spawn(async move { client.flush_pending().await });
         }
     }
 
@@ -113,7 +116,10 @@ impl LabClient {
             }
         }
 
-        let fresh = self.api.machine_token(&self.machine_id, &self.secret).await?;
+        let fresh = self
+            .api
+            .machine_token(&self.machine_id, &self.secret)
+            .await?;
         let value = fresh.access_token.clone();
         *guard = Some(CachedToken {
             value: fresh.access_token,
@@ -240,7 +246,12 @@ impl LabClient {
             // Bound to a local first: the borrow of `event.detail` has to end
             // before the failure path can move `event` back into the queue.
             let outcome = self
-                .send_once(session_id, event.event, event.occurred_at, event.detail.as_deref())
+                .send_once(
+                    session_id,
+                    event.event,
+                    event.occurred_at,
+                    event.detail.as_deref(),
+                )
                 .await;
 
             if let Err(error) = outcome {

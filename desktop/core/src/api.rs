@@ -25,7 +25,10 @@ pub enum ApiError {
     /// call for opposite responses: retry one, stop and ask a human about the
     /// other.
     Unreachable(String),
-    Refused { status: u16, detail: String },
+    Refused {
+        status: u16,
+        detail: String,
+    },
     Malformed(String),
 }
 
@@ -44,7 +47,9 @@ impl std::fmt::Display for ApiError {
         match self {
             ApiError::Unreachable(why) => write!(f, "Cannot reach the examination server ({why})"),
             ApiError::Refused { status, detail } => write!(f, "{detail} (HTTP {status})"),
-            ApiError::Malformed(why) => write!(f, "The server replied with something unexpected ({why})"),
+            ApiError::Malformed(why) => {
+                write!(f, "The server replied with something unexpected ({why})")
+            }
         }
     }
 }
@@ -193,7 +198,7 @@ impl Api {
 
     /// `event` must be one of `app.services.machines.REPORTABLE`; anything else
     /// is refused with a 422 rather than stored, so the caller uses the
-    /// constants in `lockdown.rs` instead of free text.
+    /// constants in [`crate::events`] instead of free text.
     pub async fn report_event(
         &self,
         token: &str,

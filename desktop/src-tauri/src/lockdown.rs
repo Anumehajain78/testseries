@@ -35,17 +35,13 @@ use std::time::Duration;
 
 use tauri::{Manager, WebviewWindow, WindowEvent};
 
-use crate::client::{report_closing, LabClient};
+use exam_lab_core::client::{report_closing, LabClient};
 
 /// The exact strings `app.services.machines.REPORTABLE` accepts. Anything else
 /// comes back as a 422 and is never stored, so these are constants rather than
 /// literals scattered across call sites.
-pub mod events {
-    pub const FOCUS_LOST: &str = "FOCUS_LOST";
-    pub const FOCUS_RESTORED: &str = "FOCUS_RESTORED";
-    pub const EXAM_CLIENT_CLOSED: &str = "EXAM_CLIENT_CLOSED";
-    pub const CONNECTION_RESTORED: &str = "CONNECTION_RESTORED";
-}
+// The event names moved to exam_lab_core::events, alongside the client that
+// sends them, so the crate that talks to the server owns its own vocabulary.
 
 /// How often the window re-asserts its own geometry.
 ///
@@ -191,7 +187,10 @@ pub fn attach(window: &WebviewWindow, client: Arc<LabClient>, lockdown: Arc<Lock
             tauri::async_runtime::spawn(async move {
                 if focused {
                     client
-                        .report(events::FOCUS_RESTORED, Some("Returned to the examination window.".into()))
+                        .report(
+                            events::FOCUS_RESTORED,
+                            Some("Returned to the examination window.".into()),
+                        )
                         .await;
                 } else {
                     client

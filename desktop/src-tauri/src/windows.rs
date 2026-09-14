@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
-use crate::client::{run_heartbeats, LabClient};
-use crate::config::{self, Enrolment};
 use crate::lockdown::{self, GUARD_SCRIPT};
 use crate::AppState;
+use exam_lab_core::client::{run_heartbeats, LabClient};
+use exam_lab_core::config::{self, Enrolment};
 
 /// Where the candidate interface starts. `/student` is the portal page, which
 /// redirects into the live paper on its own — this client deliberately does not

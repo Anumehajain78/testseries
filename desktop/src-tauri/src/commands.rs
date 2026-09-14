@@ -5,10 +5,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
-use crate::api::Api;
-use crate::config::{self, Enrolment};
 use crate::windows;
 use crate::AppState;
+use exam_lab_core::api::Api;
+use exam_lab_core::config::{self, Enrolment};
 
 /// Roles that may release a locked workstation. A candidate's own credentials
 /// authenticate perfectly well against `/auth/login` — the role is what stops
@@ -85,7 +85,11 @@ pub async fn enrol(
         .enrol(
             enrolment_token.trim(),
             &machine_id,
-            if hostname.is_empty() { None } else { Some(&hostname) },
+            if hostname.is_empty() {
+                None
+            } else {
+                Some(&hostname)
+            },
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -103,7 +107,10 @@ pub async fn enrol(
     // still standing there, rather than discovering at the next boot that the
     // secret they can never retrieve again was never saved.
     config::save(&state.store_dir, &enrolment).map_err(|error| {
-        format!("Enrolled, but could not save the credential to {}: {error}", state.store_dir.display())
+        format!(
+            "Enrolled, but could not save the credential to {}: {error}",
+            state.store_dir.display()
+        )
     })?;
 
     *state.enrolment.lock().expect("enrolment lock poisoned") = Some(enrolment.clone());
