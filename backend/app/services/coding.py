@@ -386,6 +386,24 @@ def correct_test_cases(
             "A coding question needs at least one test case, or it can never be scored.",
         )
 
+    # The bank is shared: a question exists independently of any one exam, so
+    # it can sit on several. Correcting it here would change the paper of every
+    # other exam using it — silently, and without clearing their marks, which
+    # is a worse version of the problem this endpoint exists to fix. Refused
+    # rather than guessed at: whoever is correcting it knows which cohorts they
+    # mean and this server does not.
+    shared = db.scalars(
+        select(ExamQuestion.exam_id)
+        .where(ExamQuestion.question_id == question_id, ExamQuestion.exam_id != exam_id)
+    ).all()
+    if shared:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"This question is also used by {len(shared)} other examination(s). "
+            f"Correcting it here would change their papers too, and their marks "
+            f"would be left standing against the old cases.",
+        )
+
     # Cleared and flushed before the replacements are added. Assigning the list
     # in one go lets SQLAlchemy order the inserts before the deletes, and the
     # new case at position 0 then collides with the old one.

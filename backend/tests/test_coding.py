@@ -628,3 +628,55 @@ class TestCorrectingATestCaseAfterTheExam:
             json={"title": "Rewritten after the fact"},
         )
         assert response.status_code == 409
+
+
+class TestASharedQuestionIsNotCorrectedByAccident:
+    """The bank is shared on purpose — a question exists independently of any
+    one exam so a pool can be larger than a paper. That means correcting one
+    through exam A would change exam B's paper too, without clearing B's
+    marks: a quieter version of the problem this endpoint exists to fix."""
+
+    def test_a_question_on_two_exams_is_refused(self, staff, world, database):
+        from app.db.models import Exam, ExamQuestion
+        from app.schemas.enums import ExamStatus
+
+        first = TestCorrectingATestCaseAfterTheExam()
+        exam_id, question_id, _ = first._completed_exam_with_a_marked_answer(staff, world)
+
+        # Put the same bank question on a second exam, which is exactly what
+        # `questionIds` on the create payload does.
+        other = make_exam(staff, world)
+        with SessionLocal() as db:
+            db.add(ExamQuestion(exam_id=uuid.UUID(other), question_id=question_id, position=99))
+            db.commit()
+
+        response = client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={
+                "reason": "Would quietly change another exam.",
+                "tests": TestCorrectingATestCaseAfterTheExam.CORRECTED,
+            },
+        )
+        assert response.status_code == 409
+        assert "other examination" in response.json()["detail"]
+
+    def test_the_marks_are_left_alone_when_it_is_refused(self, staff, world, database):
+        """A refusal must not be a half-done correction."""
+        from app.db.models import ExamQuestion
+
+        first = TestCorrectingATestCaseAfterTheExam()
+        exam_id, question_id, session_id = first._completed_exam_with_a_marked_answer(staff, world)
+        other = make_exam(staff, world)
+        with SessionLocal() as db:
+            db.add(ExamQuestion(exam_id=uuid.UUID(other), question_id=question_id, position=99))
+            db.commit()
+
+        client.patch(
+            f"{API}/exams/{exam_id}/questions/{question_id}/tests",
+            headers=staff,
+            json={"reason": "Refused.", "tests": TestCorrectingATestCaseAfterTheExam.CORRECTED},
+        )
+        with SessionLocal() as db:
+            answer = db.get(Answer, {"session_id": session_id, "question_id": question_id})
+            assert answer.awarded_marks is not None
