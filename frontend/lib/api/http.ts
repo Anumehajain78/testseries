@@ -16,6 +16,8 @@ import type {
   SessionPaperDto,
   SessionStateDto,
   SubmissionReceiptDto,
+  TestCaseCorrectionDto,
+  TestCaseCorrectionResultDto,
   ResultsPageDto,
   StudentTestCaseDto,
   TestCaseDto,
@@ -239,6 +241,24 @@ export const coding = {
   /** What running each candidate's program did, case by case. The evidence
    *  behind a mark, without which a disputed one can only be argued about. */
   reports: (examId: string) => request<CodingReportDto[]>(`/exams/${examId}/coding/reports`),
+  /**
+   * Replace a coding question's test cases after the examination is over.
+   *
+   * The one edit a finished paper accepts, and the only repair for a case with
+   * the wrong expected output — which marks an entire cohort against an answer
+   * that was never right. The server refuses it with a 409 while the exam is
+   * anything but COMPLETED: changing the key under candidates who are still
+   * answering is a worse version of the same problem.
+   *
+   * It clears every mark for the question rather than recomputing them, so the
+   * caller has to say so before it is pressed; the count comes back in
+   * `cleared` and the runner redoes them within the minute.
+   */
+  correctTests: (examId: string, questionId: string, body: TestCaseCorrectionDto) =>
+    request<TestCaseCorrectionResultDto>(`/exams/${examId}/questions/${questionId}/tests`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };
 
 export const marking = {

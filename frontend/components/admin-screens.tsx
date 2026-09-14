@@ -5,12 +5,14 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useExam } from "@/app/providers";
 import { formatDate, formatDateTime, formatDuration, formatScore, formatTime, initials, percentage, statusLabel } from "@/lib/format";
-import type { AuditSeverity, AuthoredCodingTestCase, CodingLanguage, Computer, ConnectionStatus, ExamSession, ExamState, ExamStatus, Lab, NewTestInput, Question, QuestionType, Result, Student, StudentExamStatus, Test } from "@/lib/types";
+import type { AuditSeverity, CodingLanguage, Computer, ConnectionStatus, ExamSession, ExamState, ExamStatus, Lab, NewTestInput, Question, QuestionType, Result, Student, StudentExamStatus, Test } from "@/lib/types";
+import { authoredTestCase, blankTestCase, builderTestCase, testCaseProblem, type BuilderTestCase } from "@/lib/test-cases";
 import { buildMonitorRows, computeLabOccupancy, filterAuditEvents, summarizeMonitorRows, type AuditFilter } from "@/lib/selectors";
 import { resultsFileName, resultsToCsv } from "@/lib/export";
 import { EXAM_STATUS_LABEL, examBadgeTone, examStatusTone } from "@/lib/status";
 import { AddStudentDialog, ImportRosterDialog } from "./roster";
 import { CodingRunPanel } from "./coding-reports";
+import { HiddenCaseCount, TestCaseFields } from "./test-cases";
 import { Icon } from "./icons";
 import { Badge, Button, ButtonLink, Card, EmptyState, Field, LoadingState, Modal, PageHeader, Progress, Select, StatCard, StatusDot, TableShell } from "./ui";
 
@@ -126,13 +128,8 @@ export function TestsScreen() {
 // That is what lets someone try a coding question, switch to multiple choice
 // and switch back without losing the test cases they had already written.
 //
-// `expectsNoOutput` is builder state only and never leaves this form. The
-// server requires `expectedStdout` and takes an empty string at face value, so
-// "this program should print nothing" and "nobody has filled this in yet" are
-// the same bytes on the wire. This flag is how an author says which one they
-// meant; without it, a half-written question saves as one that awards full
-// marks to a program that prints nothing at all.
-type BuilderTestCase = AuthoredCodingTestCase & { expectsNoOutput: boolean };
+// The test-case half lives in `lib/test-cases` because the correction editor
+// writes the same cases against the same rules — see the note there.
 type CreateQuestion = {
   type: QuestionType;
   prompt: string;
@@ -146,14 +143,6 @@ type CreateQuestion = {
 const blankQuestion = (): CreateQuestion => ({
   type: "mcq", prompt: "", options: ["", "", "", ""], correctOptions: [0], marks: 2,
   language: "python", starterCode: "", tests: [],
-});
-
-// The first case is the worked example the candidate is shown; everything after
-// it is hidden unless someone deliberately reveals it. A paper whose every case
-// is visible tells a candidate exactly what their program will be judged on,
-// and that default should never be reached by accident.
-const blankTest = (index: number): BuilderTestCase => ({
-  stdin: "", expectedStdout: "", hidden: index > 0, weight: 1, expectsNoOutput: false,
 });
 
 const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
@@ -225,19 +214,9 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
           language: question.language ?? "python",
           starterCode: question.starterCode ?? "",
           // The editor reads back the faculty shape, which carries the expected
-          // output and the hidden flag. Defaulting them here would quietly
-          // publish a hidden case or blank an answer key on the next save, so
-          // the fallbacks are the safe reading in each direction: no expected
-          // output yet, and hidden until someone says otherwise.
-          tests: (question.tests ?? []).map((test) => ({
-            stdin: test.stdin,
-            expectedStdout: test.expectedStdout ?? "",
-            hidden: test.hidden ?? true,
-            weight: test.weight ?? 1,
-            // It saved once, so it passed this form's check once: an empty
-            // expected output on a stored question is the deliberate kind.
-            expectsNoOutput: (test.expectedStdout ?? "") === "",
-          })),
+          // output and the hidden flag. A stored question saved once, so an
+          // empty expected output on one is the deliberate kind.
+          tests: (question.tests ?? []).map(builderTestCase),
         }))
       : [blankQuestion()],
   );
@@ -254,7 +233,7 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
   // a coding question with no cases can never be scored at all.
   const changeQuestionType = (index: number, type: QuestionType) => setQuestions((old) => old.map((q, i) => {
     if (i !== index) return q;
-    if (type === "coding") return { ...q, type, options: [], correctOptions: [], tests: q.tests.length ? q.tests : [blankTest(0)] };
+    if (type === "coding") return { ...q, type, options: [], correctOptions: [], tests: q.tests.length ? q.tests : [blankTestCase(0)] };
     if (type === "text") return { ...q, type, options: [], correctOptions: [] };
     const options = q.options.length ? q.options : ["", "", "", ""];
     const correct = type === "mcq" ? q.correctOptions.slice(0, 1) : q.correctOptions;
@@ -265,7 +244,7 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
   // it intact rather than reordering around the edit.
   const updateTestCase = (index: number, testIndex: number, patch: Partial<BuilderTestCase>) =>
     updateQuestion(index, { tests: questions[index].tests.map((test, i) => (i === testIndex ? { ...test, ...patch } : test)) });
-  const addTestCase = (index: number) => updateQuestion(index, { tests: [...questions[index].tests, blankTest(questions[index].tests.length)] });
+  const addTestCase = (index: number) => updateQuestion(index, { tests: [...questions[index].tests, blankTestCase(questions[index].tests.length)] });
   const removeTestCase = (index: number, testIndex: number) =>
     updateQuestion(index, { tests: questions[index].tests.filter((_, i) => i !== testIndex) });
 
@@ -303,7 +282,7 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
             ...question,
             language,
             starterCode: starterCode.length ? starterCode : null,
-            tests: tests.map(({ expectsNoOutput, ...test }) => ({ ...test, expectedStdout: expectsNoOutput ? "" : test.expectedStdout })),
+            tests: tests.map(authoredTestCase),
           }
         : question
     )),
@@ -329,12 +308,8 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
         // The test cases are the answer key. A coding question saved without
         // one, or with a case that expects nothing in particular, is a question
         // the runner will happily award full marks for any program at all.
-        if (!q.tests.length) next[`q${i}`] = "Add at least one test case — the tests are how this question is marked.";
-        // Whitespace-only counts as empty because the runner normalises it
-        // away before comparing — so it would pass every program that printed
-        // nothing, which is exactly the trap the flag exists to make explicit.
-        else if (q.tests.some((test) => !test.expectsNoOutput && !test.expectedStdout.trim())) next[`q${i}`] = "Give every test case the output it should produce, or tick that it expects none.";
-        else if (q.tests.some((test) => !(Number(test.weight) > 0))) next[`q${i}`] = "Every test case needs a weight above zero.";
+        const problem = testCaseProblem(q.tests);
+        if (problem) next[`q${i}`] = problem;
         return;
       }
       if (q.options.length < 2 || q.options.some((o) => !o.trim())) {
@@ -448,7 +423,7 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
 
     <Card>
       <div className="form-section-heading"><span>06</span><div><h2>Questions</h2><p>Add objective questions, answer choices, and the correct response.</p></div></div>
-      <div className="question-builder">{questions.map((q, index) => { const hiddenTests = q.tests.filter((test) => test.hidden).length; return <fieldset key={index} className="builder-item"><legend>Question {index + 1}</legend>
+      <div className="question-builder">{questions.map((q, index) => <fieldset key={index} className="builder-item"><legend>Question {index + 1}</legend>
         <label className="field"><span>Question prompt</span><textarea value={q.prompt} onChange={(e) => updateQuestion(index, { prompt: e.target.value })} placeholder="Enter a clear, unambiguous question"/></label>
         <Select label="Answer type" value={q.type} onChange={(e) => changeQuestionType(index, e.target.value as QuestionType)}>{(["mcq","multiple","text","coding"] as const).map((t) => <option key={t} value={t}>{QUESTION_TYPE_LABEL[t]}</option>)}</Select>
         {q.type === "coding" ? <div className="coding-builder">
@@ -460,32 +435,21 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
           <label className="field" style={{ marginTop: 18 }}><span>Starter code</span><textarea className="code-input" value={q.starterCode} onChange={(e) => updateQuestion(index, { starterCode: e.target.value })} spellCheck={false} placeholder={"# Read from standard input and print the answer.\ndata = input()\n"}/><small>Pre-filled in the candidate&rsquo;s editor. Leave it empty to start them on a blank file.</small></label>
           <div className="test-builder-head">
             <div><strong>Test cases</strong><small>Each case feeds one input to the program and compares what it prints. A hidden case is the answer key; a visible one is printed on the paper as a worked example &mdash; its input only, never the output it should produce.</small></div>
-            {/* Said as a count rather than a colour alone, because a paper with
-                nothing hidden is one a candidate can see the whole shape of. */}
-            <Badge tone={q.tests.length && hiddenTests ? "success" : "warning"}>{hiddenTests} of {q.tests.length} hidden</Badge>
+            <HiddenCaseCount tests={q.tests}/>
           </div>
-          <div className="test-builder">{q.tests.map((test, testIndex) => <div key={testIndex} className={`test-case ${test.hidden ? "is-hidden" : "is-visible"}`}>
-            <div className="test-case-head"><strong>Test {testIndex + 1}</strong><Badge tone={test.hidden ? "neutral" : "info"}>{test.hidden ? "Hidden" : "Shown to candidates"}</Badge></div>
-            <div className="test-case-io">
-              <label className="field"><span>Input on stdin</span><textarea className="code-input" value={test.stdin} onChange={(e) => updateTestCase(index, testIndex, { stdin: e.target.value })} spellCheck={false} placeholder={"4\n1 2 3 4"}/></label>
-              <div className="field">
-                <label htmlFor={`q${index}t${testIndex}-expected`}>Expected output on stdout</label>
-                <textarea id={`q${index}t${testIndex}-expected`} className="code-input" value={test.expectsNoOutput ? "" : test.expectedStdout} onChange={(e) => updateTestCase(index, testIndex, { expectedStdout: e.target.value })} disabled={test.expectsNoOutput} spellCheck={false} placeholder="10"/>
-                {/* An empty expected output has to be chosen. Left blank it
-                    would award full marks to a program that prints nothing. */}
-                <label className="expects-nothing"><input type="checkbox" checked={test.expectsNoOutput} onChange={(e) => updateTestCase(index, testIndex, { expectsNoOutput: e.target.checked, expectedStdout: e.target.checked ? "" : test.expectedStdout })}/><span>This case expects no output at all</span></label>
-              </div>
-            </div>
-            <div className="test-case-foot">
-              <label className="toggle-option"><input type="checkbox" checked={test.hidden} onChange={(e) => updateTestCase(index, testIndex, { hidden: e.target.checked })}/><span><strong>Hide from candidates</strong><small>{test.hidden ? "Neither this input nor its output reaches the paper." : "This input is printed on the paper as a sample."}</small></span></label>
-              <Field label="Weight" type="number" min={1} value={test.weight} onChange={(e) => updateTestCase(index, testIndex, { weight: Number(e.target.value) })} hint="Share of the marks"/>
-              {q.tests.length > 1 && <Button type="button" tone="ghost" onClick={() => removeTestCase(index, testIndex)}>Remove test</Button>}
-            </div>
-          </div>)}</div>
+          <div className="test-builder">{q.tests.map((test, testIndex) => <TestCaseFields
+            key={testIndex}
+            label={`Test ${testIndex + 1}`}
+            test={test}
+            onChange={(patch) => updateTestCase(index, testIndex, patch)}
+            // Never offered on the last case: a coding question with no cases
+            // cannot be scored, and this form would then refuse to save.
+            onRemove={q.tests.length > 1 ? () => removeTestCase(index, testIndex) : undefined}
+          />)}</div>
           <Button type="button" tone="secondary" icon="plus" onClick={() => addTestCase(index)}>Add test case</Button>
         </div> : q.type === "text" ? <p className="field-hint">Written answers are marked by hand after the exam.</p> : <><p className="field-hint">{q.type === "multiple" ? "Tick every choice that is correct." : "Tick the one correct choice."}</p><div className="option-builder">{q.options.map((option, optionIndex) => <label key={optionIndex} className="builder-option"><input type={q.type === "multiple" ? "checkbox" : "radio"} name={`correct-${index}`} checked={q.correctOptions.includes(optionIndex)} onChange={() => toggleCorrect(index, optionIndex)} aria-label={`Option ${String.fromCharCode(65 + optionIndex)} is correct`}/><input aria-label={`Option ${optionIndex + 1}`} value={option} onChange={(e) => updateQuestion(index, { options: q.options.map((old, i) => i === optionIndex ? e.target.value : old) })} placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}/></label>)}</div></>}
         <Field label="Marks" type="number" min={1} value={q.marks} onChange={(e) => updateQuestion(index, { marks: Number(e.target.value) })}/>{errors[`q${index}`] && <p className="field-error">{errors[`q${index}`]}</p>}{questions.length > 1 && <Button type="button" tone="ghost" onClick={() => setQuestions((old) => old.filter((_, i) => i !== index))}>Remove question</Button>}
-      </fieldset>; })}</div>
+      </fieldset>)}</div>
       <Button type="button" tone="secondary" icon="plus" onClick={() => setQuestions((old) => [...old, blankQuestion()])}>Add another question</Button>
     </Card>
 

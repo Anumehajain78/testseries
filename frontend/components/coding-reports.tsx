@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { ApiError, coding, type CodingCaseReportDto, type CodingReportDto } from "@/lib/api";
 import { useExam } from "@/app/providers";
 import type { Test } from "@/lib/types";
+import { CorrectTestCasesPanel, type Remarking } from "./coding-correction";
 import { Icon } from "./icons";
 import { Badge, Button, ButtonLink, Card, EmptyState, LoadingState, Modal, PageHeader } from "./ui";
 
@@ -20,8 +21,16 @@ import { Badge, Button, ButtonLink, Card, EmptyState, LoadingState, Modal, PageH
 //
 // What it cannot do is change a mark. A program's mark comes from running it,
 // so the repair for a wrong one is to correct the question and run it again,
-// not to type a different number over the top.
+// not to type a different number over the top. That repair lives on this
+// screen too — see `coding-correction` — because this is where the evidence
+// that a case is wrong shows up.
 // ---------------------------------------------------------------------------
+
+/** How long the screen keeps checking for marks the runner owes it. The runner
+ *  comes round within about a minute; past this something is wrong with it,
+ *  and polling on silently would hide that behind a spinner. */
+const REMARK_WATCH_MS = 5 * 60_000;
+const REMARK_POLL_MS = 10_000;
 
 const key = (report: CodingReportDto) => `${report.sessionId}:${report.questionId}`;
 
@@ -183,6 +192,11 @@ export function CodingReportScreen() {
   const { state, hydrated, refreshExam } = useExam();
   const [reports, setReports] = useState<CodingReportDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Questions this visit has corrected, and how many marks each one cleared.
+  // The papers are unmarked for about a minute while the runner redoes them,
+  // and without this the screen shows a column of blanks that reads as marks
+  // having been lost rather than as work in progress.
+  const [corrected, setCorrected] = useState<Remarking>({});
 
   const load = useCallback(
     () =>
@@ -202,6 +216,29 @@ export function CodingReportScreen() {
     return () => { cancelled = true; };
   }, [params.id]);
 
+  // A corrected question stops being "re-marking" when the runner has given
+  // every one of its papers a mark again. Read off what came back rather than
+  // held in state and expired on a timer: a slow runner keeps its notice up,
+  // and a quick one loses it the moment the marks are actually there.
+  const active = useMemo(() => {
+    if (!reports) return corrected;
+    return Object.fromEntries(
+      Object.entries(corrected).filter(([questionId]) =>
+        reports.some((report) => report.questionId === questionId && !isMarked(report)),
+      ),
+    );
+  }, [corrected, reports]);
+
+  // Re-read while marks are owed, so the person who made the correction sees
+  // them return instead of being left to guess when to reload.
+  const awaitingRemark = Object.keys(active).length > 0;
+  useEffect(() => {
+    if (!awaitingRemark) return;
+    const poll = window.setInterval(() => { void load(); }, REMARK_POLL_MS);
+    const giveUp = window.setTimeout(() => window.clearInterval(poll), REMARK_WATCH_MS);
+    return () => { window.clearInterval(poll); window.clearTimeout(giveUp); };
+  }, [awaitingRemark, load]);
+
   const exam = state.tests.find((test) => test.id === params.id);
 
   // Unmarked first, then by candidate — the same order as the written-answer
@@ -215,8 +252,14 @@ export function CodingReportScreen() {
   }, [reports]);
 
   const unmarked = ordered.filter((report) => !isMarked(report)).length;
+  // Papers that are unmarked *because* their question was just corrected.
+  // Counted apart from the rest: one is work the runner owes and the other is
+  // work nobody has asked for yet, and they need different answers.
+  const beingRemarked = ordered.filter((report) => !isMarked(report) && active[report.questionId] !== undefined).length;
 
-  if (!hydrated || reports === null) return <LoadingState/>;
+  // The error is not a loading state. Waiting on a spinner that will never
+  // resolve tells a faculty member nothing about what to do next.
+  if (!hydrated || (reports === null && !error)) return <LoadingState/>;
 
   return <>
     <PageHeader
@@ -224,9 +267,10 @@ export function CodingReportScreen() {
       title={exam ? exam.title : "Submitted programs"}
       description="Every candidate's program and what running it did — which cases passed, and what the program printed."
       actions={<>
-        <Badge tone={unmarked ? "warning" : "success"}>
-          {unmarked ? `${unmarked} not marked yet` : "All marked"}
-        </Badge>
+        {beingRemarked > 0 && <Badge tone="info">{beingRemarked} being re-marked</Badge>}
+        {reports !== null && (unmarked > beingRemarked || beingRemarked === 0) && <Badge tone={unmarked ? "warning" : "success"}>
+          {unmarked ? `${unmarked - beingRemarked} not marked yet` : "All marked"}
+        </Badge>}
         {exam && <ButtonLink href={`/admin/tests/${exam.id}`} tone="secondary">Assessment</ButtonLink>}
         <ButtonLink href="/admin/results" tone="ghost">Results</ButtonLink>
       </>}
@@ -238,7 +282,25 @@ export function CodingReportScreen() {
         on the screen showing the evidence that it needs to. */}
     {exam && <CodingRunPanel exam={exam} pending={unmarked} onRan={() => { void load(); void refreshExam(exam.id); }}/>}
 
-    {ordered.length === 0
+    {/* Below the run controls, because correcting a case is the reason to use
+        them and not the other way round. Re-reading the exam is what brings
+        the corrected cases back into the editor for a second pass. */}
+    {exam && <CorrectTestCasesPanel
+      exam={exam}
+      reports={reports}
+      remarking={active}
+      onCorrected={(questionId, result) => {
+        setCorrected((previous) => ({ ...previous, [questionId]: result.cleared }));
+        void load();
+        void refreshExam(exam.id);
+      }}
+    />}
+
+    {reports === null
+      // Nothing truthful to list. "No programs to review" would say the cohort
+      // submitted nothing, when what happened is that this screen could not ask.
+      ? null
+      : ordered.length === 0
       ? <EmptyState
           icon="code"
           title="No programs to review"
@@ -249,8 +311,12 @@ export function CodingReportScreen() {
           {ordered.map((report) => {
             const marked = isMarked(report);
             const cases = report.cases ?? [];
+            // A paper left unmarked by a correction is not a paper nobody has
+            // got to. Saying so is the whole point: the mark this candidate had
+            // was worked out from a key that no longer exists.
+            const reworking = !marked && active[report.questionId] !== undefined;
             return (
-              <Card key={key(report)} className={`marking-card ${marked ? "is-marked" : ""}`}>
+              <Card key={key(report)} className={`marking-card ${marked ? "is-marked" : ""} ${reworking ? "is-remarking" : ""}`}>
                 <div className="marking-head">
                   <div>
                     <strong>{report.studentName}</strong>
@@ -258,12 +324,16 @@ export function CodingReportScreen() {
                   </div>
                   {/* Never a nought while it is unmarked: that would say the
                       candidate failed, when nothing has run their program. */}
-                  <Badge tone={marked ? "success" : "warning"}>
-                    {marked ? `${report.awardedMarks} of ${report.marks}` : `Awaiting marking · ${report.marks} marks`}
+                  <Badge tone={marked ? "success" : reworking ? "info" : "warning"}>
+                    {marked ? `${report.awardedMarks} of ${report.marks}` : reworking ? `Being re-marked · ${report.marks} marks` : `Awaiting marking · ${report.marks} marks`}
                   </Badge>
                 </div>
 
                 <p className="marking-prompt">{report.prompt}</p>
+
+                {reworking && <p className="case-summary is-remarking">
+                  <Icon name="reset" size={15}/> The test cases behind this question were corrected, so the mark it had was cleared and the runner is working it out again. It comes back within about a minute.
+                </p>}
 
                 {marked && <p className="case-summary">
                   <Icon name="check" size={15}/> {report.passed} of {report.total} {report.total === 1 ? "case" : "cases"} passed
@@ -273,7 +343,13 @@ export function CodingReportScreen() {
                     exactly as submitted rather than reflowed to fit. */}
                 <pre className="marking-response marking-code">{report.source.trim() || <em>No program was submitted.</em>}</pre>
 
-                {cases.length > 0
+                {reworking
+                  // Whatever ran last ran against cases that no longer exist,
+                  // so it is not evidence about anything. Leaving it up would
+                  // have a marker reading a failed case that is no longer part
+                  // of the question; the notice above says what is coming.
+                  ? null
+                  : cases.length > 0
                   ? <ol className="case-list">{cases.map((item, index) => <CaseRow key={item.position} report={item} index={index}/>)}</ol>
                   : <p className="case-summary is-pending"><Icon name="clock" size={15}/> This program has not been run yet, so there is nothing to show. Use the controls above to run it now.</p>}
               </Card>

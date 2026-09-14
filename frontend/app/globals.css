@@ -208,3 +208,28 @@ tr.is-withheld td { color: var(--muted); }tr.is-withheld .table-title { color: v
 .expects-nothing { display: flex; align-items: center; gap: 7px; margin-top: 7px; color: var(--muted); font-size: 10px; font-weight: 500; cursor: pointer; }
 .expects-nothing input { width: 14px; height: 14px; accent-color: var(--teal-700); }
 .field textarea:disabled { background: #f2f5f7; color: #8b97a3; cursor: not-allowed; }
+/* Correcting an answer key after the exam. The panel is deliberately quieter
+   than the run controls above it: this is the rarer and more destructive of
+   the two, and it should not read as the next thing to press. */
+.key-list { display: grid; gap: 9px; }
+.key-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px; background: #fff; }
+.key-row.is-remarking { border-left: 3px solid var(--blue-600); background: var(--blue-100); }
+.key-row-main { min-width: 0; }
+.key-row-prompt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin: 0; color: var(--navy-900); font-size: 12px; line-height: 1.5; }
+.key-row-main small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.key-row .btn { flex: 0 0 auto; }
+/* Amber, not red: the caution is about what saving will cost, and a form that
+   shouts before anything has been done teaches people to ignore it. */
+.coding-panel-note.is-caution { background: var(--amber-100); color: #6d4508; }
+.coding-panel-note.is-caution svg, .coding-panel-note.is-caution strong { color: var(--amber-600); }
+.correction-editor { gap: 12px; margin: 0; }
+.correction-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.correction-head .key-row-prompt { max-width: 620px; margin-top: 3px; font-size: 13px; }
+.correction-reason { margin-top: 4px; }
+.correction-reason textarea { min-height: 76px; resize: vertical; }
+.correction-reason small { max-width: 620px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+/* A cleared mark is not a missing one. The card says so in its own right, so a
+   screenshot of it taken out of context still reads correctly. */
+.marking-card.is-remarking { border-color: color-mix(in srgb, var(--blue-600) 35%, var(--border)); }
+.case-summary.is-remarking { align-items: flex-start; color: var(--blue-600); font-weight: 500; line-height: 1.6; }
+.case-summary.is-remarking svg { flex: 0 0 auto; margin-top: 2px; }

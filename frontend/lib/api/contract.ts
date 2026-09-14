@@ -39,6 +39,12 @@ export type RuntimeCapabilitiesDto = Schemas["RuntimeCapabilities"];
 export type CodingReportDto = Schemas["CodingReport"];
 export type CodingCaseReportDto = Schemas["CodingCaseReport"];
 export type CodingRunSummaryDto = Schemas["CodingRunSummary"];
+/** A repair to a coding question's answer key after the exam is over, and the
+ *  reason that goes with it into the audit trail. */
+export type TestCaseCorrectionDto = Schemas["TestCaseCorrection"];
+/** What the repair did: how many cases the question now has, and how many
+ *  marks were set back to unmarked for the runner to redo. */
+export type TestCaseCorrectionResultDto = Schemas["TestCaseCorrectionResult"];
 export type StudentDto = Schemas["StudentOut"];
 export type LabDto = Schemas["LabOut"];
 export type ComputerDto = Schemas["ComputerOut"];
