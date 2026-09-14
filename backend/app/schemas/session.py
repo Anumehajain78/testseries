@@ -206,3 +206,12 @@ class CodingRunSummary(Schema):
 
     graded: int
     skipped: int
+
+
+class RuntimeCapabilities(Schema):
+    """What the server can do, as opposed to what it is configured to offer."""
+
+    coding_sandbox: bool = Field(
+        alias="codingSandbox",
+        description="False means coding answers cannot be marked on this machine.",
+    )

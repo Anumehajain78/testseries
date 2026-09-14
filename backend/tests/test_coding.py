@@ -300,3 +300,53 @@ class TestNormalisingOutput:
 
     def test_case_still_counts(self):
         assert coding.normalise("Yes") != coding.normalise("yes")
+
+
+class TestTheContractRefusesAmbiguousCases:
+    def test_a_test_case_must_state_its_expected_output(self, staff, world):
+        """No default. An empty expected output is occasionally what a question
+        wants and must never be what it gets by accident — a case defaulting to
+        "" awards marks to any program that prints nothing, including one that
+        crashes before its first line."""
+        payload = {
+            "title": f"Bad Case {uuid.uuid4().hex[:6]}",
+            "code": f"BAD-{uuid.uuid4().hex[:5].upper()}",
+            "course": "Programming",
+            "department": "Computer Science",
+            "durationMinutes": 30,
+            "scheduledAt": "2026-09-01T10:00:00Z",
+            "labId": world["lab"]["id"],
+            "questions": [{**CODING_QUESTION, "tests": [{"stdin": "1", "hidden": True, "weight": 1}]}],
+        }
+        response = client.post(f"{API}/exams", json=payload, headers=staff)
+        assert response.status_code == 422
+
+    def test_expecting_no_output_is_still_possible_when_said_deliberately(self, staff, world):
+        payload = {
+            "title": f"Silent {uuid.uuid4().hex[:6]}",
+            "code": f"SIL-{uuid.uuid4().hex[:5].upper()}",
+            "course": "Programming",
+            "department": "Computer Science",
+            "durationMinutes": 30,
+            "scheduledAt": "2026-09-01T10:00:00Z",
+            "labId": world["lab"]["id"],
+            "questions": [{
+                **CODING_QUESTION,
+                "tests": [{"stdin": "", "expectedStdout": "", "hidden": True, "weight": 1}],
+            }],
+        }
+        assert client.post(f"{API}/exams", json=payload, headers=staff).status_code == 201
+
+
+class TestSayingWhetherCodeCanRunAtAll:
+    def test_staff_can_ask_whether_this_machine_has_a_sandbox(self, staff):
+        """Otherwise a console shows "awaiting marking" for ever on a machine
+        that will never mark anything, and nobody can tell that from marking
+        that has simply not happened yet."""
+        response = client.get(f"{API}/exams/runtime/capabilities", headers=staff)
+        assert response.status_code == 200
+        assert response.json()["codingSandbox"] is (sandbox_available() is not None)
+
+    def test_a_candidate_cannot_ask(self, database):
+        headers = _login("aarav.mehta@northbridge.edu")
+        assert client.get(f"{API}/exams/runtime/capabilities", headers=headers).status_code == 403

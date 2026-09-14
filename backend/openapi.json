@@ -2383,6 +2383,21 @@
         "title": "RosterImportRequest",
         "type": "object"
       },
+      "RuntimeCapabilities": {
+        "description": "What the server can do, as opposed to what it is configured to offer.",
+        "properties": {
+          "codingSandbox": {
+            "description": "False means coding answers cannot be marked on this machine.",
+            "title": "Codingsandbox",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "codingSandbox"
+        ],
+        "title": "RuntimeCapabilities",
+        "type": "object"
+      },
       "SaveAnswerRequest": {
         "properties": {
           "clientSeq": {
@@ -3372,7 +3387,6 @@
         "description": "One test case for a coding question. Faculty scope only.",
         "properties": {
           "expectedStdout": {
-            "default": "",
             "maxLength": 20000,
             "title": "Expectedstdout",
             "type": "string"
@@ -3396,6 +3410,9 @@
             "type": "integer"
           }
         },
+        "required": [
+          "expectedStdout"
+        ],
         "title": "TestCaseIn",
         "type": "object"
       },
@@ -4204,6 +4221,33 @@
           }
         ],
         "summary": "Create Exam",
+        "tags": [
+          "exams"
+        ]
+      }
+    },
+    "/api/v1/exams/runtime/capabilities": {
+      "get": {
+        "description": "What this server can actually do.\n\nExists for one honest answer: whether coding answers will ever be marked.\nWithout it a console shows \"awaiting marking\" for ever on a machine with no\nsandbox, and nobody can tell that from marking that simply has not happened\nyet. Staff only \u2014 which components are missing is not a candidate's\nbusiness.",
+        "operationId": "getRuntimeCapabilities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeCapabilities"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Runtime Capabilities",
         "tags": [
           "exams"
         ]

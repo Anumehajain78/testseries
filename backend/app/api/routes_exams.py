@@ -23,10 +23,11 @@ from app.schemas.exam import (
     ExamWindow,
 )
 from app.schemas.result import PublishResultsRequest, ResultsPage
-from app.domain.sandbox import SandboxUnavailable
+from app.domain.sandbox import SandboxUnavailable, sandbox_available
 from app.schemas.session import (
     AwardMarksRequest,
     CodingRunSummary,
+    RuntimeCapabilities,
     MarkingItem,
     MonitorSnapshot,
     SessionRow,
@@ -167,6 +168,19 @@ def get_exam_results(exam_id: UUID, db: DbSession, _: Staff) -> ResultsPage:
     if results is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment not found")
     return results
+
+
+@router.get("/runtime/capabilities", response_model=RuntimeCapabilities, operation_id="getRuntimeCapabilities")
+def runtime_capabilities(_: Staff) -> RuntimeCapabilities:
+    """What this server can actually do.
+
+    Exists for one honest answer: whether coding answers will ever be marked.
+    Without it a console shows "awaiting marking" for ever on a machine with no
+    sandbox, and nobody can tell that from marking that simply has not happened
+    yet. Staff only — which components are missing is not a candidate's
+    business.
+    """
+    return RuntimeCapabilities(coding_sandbox=sandbox_available() is not None)
 
 
 @router.post(

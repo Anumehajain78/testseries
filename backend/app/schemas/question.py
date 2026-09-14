@@ -27,7 +27,11 @@ class TestCaseIn(Schema):
     """One test case for a coding question. Faculty scope only."""
 
     stdin: str = Field(default="", max_length=20_000)
-    expected_stdout: str = Field(default="", max_length=20_000, alias="expectedStdout")
+    #: Required, with no default. An empty expected output is occasionally
+    #: what a question wants, but it must never be what a question gets by
+    #: accident: a case defaulting to "" awards marks to any program that
+    #: prints nothing at all, including one that crashes before its first line.
+    expected_stdout: str = Field(max_length=20_000, alias="expectedStdout")
     #: Hidden cases are the answer key. A visible one is a worked example.
     hidden: bool = True
     weight: int = Field(default=1, ge=1, le=100)
