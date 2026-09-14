@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useExam } from "@/app/providers";
 import { formatDateTime, formatScore, initials, percentage } from "@/lib/format";
+import { announceSession } from "@/lib/lab-client";
+import { candidateSessionId } from "@/lib/api";
 import { Icon } from "./icons";
 import { ExamTimer, QuestionCard, QuestionPalette, SubmitDialog, SystemCheck, isAnswered, type ReadinessCheck } from "./exam";
 import { Badge, Button, ButtonLink, Card, EmptyState, LoadingState, Progress, StatusDot } from "./ui";
@@ -69,6 +71,17 @@ export function WaitingRoomScreen() {
 
 export function StudentExamScreen() {
   const params = useParams<{ id: string }>(); const router = useRouter(); const { state, hydrated, currentStudentId, answerQuestion, flagQuestion, submitExam } = useExam(); const [current, setCurrent] = useState(0); const [dialog, setDialog] = useState(false); const test = state.tests.find((t) => t.id === params.id); const submission = state.submissions.find((s) => s.testId === params.id && s.studentId === currentStudentId); const finish = useCallback(async (mode: "manual" | "automatic") => { try { await submitExam(params.id, mode); router.replace("/student/submitted"); } catch { /* the provider has already explained it */ } }, [params.id, submitExam, router]); const autoSubmit = useCallback(() => finish("automatic"), [finish]);
+
+  // Hand the session id to the lab client, which cannot look one up: it
+  // authenticates as a machine and the lookup needs the candidate's token.
+  // Without this it observes a candidate switching away and has nothing to
+  // file the event against. Cleared on the way out, so a submitted paper does
+  // not keep collecting events.
+  const sessionId = candidateSessionId(state, params.id, currentStudentId);
+  useEffect(() => {
+    announceSession(sessionId);
+    return () => announceSession(null);
+  }, [sessionId]);
   if (!hydrated) return <LoadingState/>; if (submission) return <div className="centered-student"><EmptyState icon="check" title="Assessment already submitted" description="Your answers have been received and cannot be changed." action={<ButtonLink href="/student/submitted">View receipt</ButtonLink>}/></div>; if (!test || test.status !== "live") return <div className="centered-student"><EmptyState icon="shield" title="Entry gate is closed" description="This assessment has not been released by the exam controller." action={<ButtonLink href="/student/waiting">Return to waiting room</ButtonLink>}/></div>;
   const key = `${test.id}:${currentStudentId}`; const answers = state.answers[key] ?? {}; const flags = state.flags[key] ?? []; const question = test.questions[current];
   const student = state.students.find((s) => s.id === currentStudentId);
