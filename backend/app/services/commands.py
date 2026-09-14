@@ -28,8 +28,10 @@ from app.db.models import (
     ExamEnrolment,
     ExamQuestion,
     ExamSession,
+    Faculty,
     Question,
     QuestionOption,
+    User,
 )
 from app.domain.seating import Workstation, allocate_seats, capacity_shortfall
 from app.domain.transitions import IllegalTransition, assert_exam_move
@@ -115,7 +117,28 @@ def _bump_seq(exam: Exam) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _authoring_record(db: Session, actor_id: UUID, department: str) -> None:
+    """Make sure whoever is authoring this exam can be named as its author.
+
+    ``exams.created_by`` and ``questions.owner_id`` both point at ``faculty``,
+    but the route admits any staff principal — so an exam cell administrator
+    creating an assessment hit a foreign key violation and got a 500. They are
+    allowed to do it; the record of who did simply had nowhere to live.
+
+    Written here rather than in the seed because it has to hold for an
+    administrator the college adds later, not only for the one seeded.
+    """
+    if db.get(Faculty, actor_id) is not None:
+        return
+    user = db.get(User, actor_id)
+    if user is None:  # pragma: no cover - a token for a deleted user
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unknown account")
+    db.add(Faculty(user_id=actor_id, employee_no=f"STAFF-{str(actor_id)[:8]}", department=department))
+    db.flush()
+
+
 def create_exam(db: Session, payload: ExamCreate, *, actor_id: UUID, actor_label: str):
+    _authoring_record(db, actor_id, payload.department)
     exam = Exam(
         id=uuid4(),
         code=payload.code,
