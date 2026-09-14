@@ -226,11 +226,56 @@ class Question(Base, TimestampMixin):
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     marks: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # Coding questions only, and null for every other type.
+    #: Which runtime the sandbox starts. Stored per question rather than
+    #: configured globally because a paper may mix languages later, and a
+    #: stored answer has to stay runnable under the language it was written in.
+    language: Mapped[str | None] = mapped_column(String(40))
+    starter_code: Mapped[str | None] = mapped_column(Text)
+    #: Wall clock, not CPU. A program that sleeps is as stuck as one that spins,
+    #: and a candidate waiting on a hung grader cannot tell the difference.
+    time_limit_ms: Mapped[int | None] = mapped_column(Integer)
+    memory_limit_mb: Mapped[int | None] = mapped_column(Integer)
+
     options: Mapped[list["QuestionOption"]] = relationship(
         back_populates="question", cascade="all, delete-orphan", order_by="QuestionOption.position"
     )
+    tests: Mapped[list["QuestionTest"]] = relationship(
+        back_populates="question", cascade="all, delete-orphan", order_by="QuestionTest.position"
+    )
 
     __table_args__ = (CheckConstraint("marks > 0", name="marks_positive"),)
+
+
+class QuestionTest(Base):
+    """One test case for a coding question.
+
+    Hidden tests are the answer key. A candidate who can see every case can
+    write a program that prints the expected output without solving anything,
+    so ``expected_stdout`` is kept off the candidate-facing schema entirely —
+    the same structural guarantee that keeps ``is_correct`` off an option.
+    """
+
+    __tablename__ = "question_tests"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    stdin: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    expected_stdout: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    #: Shown to the candidate as a worked example when false.
+    hidden: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    #: Relative worth within the question, so a hard case can count for more.
+    weight: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    question: Mapped[Question] = relationship(back_populates="tests")
+
+    __table_args__ = (
+        UniqueConstraint("question_id", "position", name="uq_question_tests_position"),
+        CheckConstraint("weight > 0", name="test_weight_positive"),
+    )
 
 
 class QuestionOption(Base):
@@ -448,6 +493,11 @@ class Answer(Base):
     awarded_marks: Mapped[float | None] = mapped_column(Numeric(6, 2))
     marked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     marked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: How a coding answer earned its marks: the outcome of each test case.
+    #: Stored because "6 out of 10" is not reviewable — faculty checking a
+    #: disputed mark need to see which case failed and what the program
+    #: actually printed. Null for every other question type.
+    run_report: Mapped[dict | None] = mapped_column(JSONB)
     saved_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

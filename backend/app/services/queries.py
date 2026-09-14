@@ -45,7 +45,7 @@ from app.schemas.enums import (
     SessionStatus,
 )
 from app.schemas.exam import ExamConfig, ExamDetail, ExamSummary
-from app.schemas.question import OptionOut, QuestionOut
+from app.schemas.question import OptionOut, QuestionOut, TestCaseOut
 from app.schemas.result import ResultRow, ResultsPage, ResultStats
 from app.schemas.session import (
     ActivityEntry,
@@ -171,7 +171,10 @@ def get_exam(db: Session, exam_id: UUID) -> ExamDetail | None:
     paper = db.execute(
         select(ExamQuestion, Question)
         .join(Question, Question.id == ExamQuestion.question_id)
-        .options(selectinload(ExamQuestion.question).selectinload(Question.options))
+        .options(
+            selectinload(ExamQuestion.question).selectinload(Question.options),
+            selectinload(ExamQuestion.question).selectinload(Question.tests),
+        )
         .where(ExamQuestion.exam_id == exam_id)
         .order_by(ExamQuestion.position)
     ).all()
@@ -186,6 +189,21 @@ def get_exam(db: Session, exam_id: UUID) -> ExamDetail | None:
             options=[
                 OptionOut(id=o.id, position=o.position, body=o.body, is_correct=o.is_correct)
                 for o in question.options
+            ],
+            language=question.language,
+            starter_code=question.starter_code,
+            time_limit_ms=question.time_limit_ms,
+            memory_limit_mb=question.memory_limit_mb,
+            tests=[
+                TestCaseOut(
+                    id=t.id,
+                    position=t.position,
+                    stdin=t.stdin,
+                    expected_stdout=t.expected_stdout,
+                    hidden=t.hidden,
+                    weight=t.weight,
+                )
+                for t in question.tests
             ],
         )
         for link, question in paper

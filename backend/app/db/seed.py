@@ -30,6 +30,7 @@ from app.db.models import (
     Lab,
     Question,
     QuestionOption,
+    QuestionTest,
     Result,
     Student,
     User,
@@ -130,6 +131,27 @@ DS_QUESTIONS = [
     (QuestionType.TEXT, "Explain in one sentence why hashing can degrade to O(n) lookup time.", [], [], 2),
 ]
 
+#: One coding question, so the sandbox and the runner are visible in the demo
+#: rather than only in the tests. Kept deliberately small: the point is to show
+#: the path from editor to marks, not to set a hard problem.
+DS_CODING = {
+    "prompt": (
+        "Read a line of space-separated integers and print the largest.\n\n"
+        "Input:  a single line, e.g. `3 9 2`\n"
+        "Output: one integer, e.g. `9`"
+    ),
+    "marks": 5,
+    "starter_code": "values = [int(n) for n in input().split()]\n",
+    "tests": [
+        # Visible: the worked example a candidate is shown.
+        ("3 9 2", "9", False, 1),
+        # Hidden: these are the answer key, and never leave the server.
+        ("-4 -9 -1", "-1", True, 1),
+        ("7", "7", True, 1),
+        ("5 5 5 5", "5", True, 2),
+    ],
+}
+
 CN_QUESTIONS = [
     (QuestionType.MCQ, "Which layer of the OSI model is responsible for routing?",
      ["Data link", "Network", "Transport", "Session"], [1], 2),
@@ -170,7 +192,7 @@ def wipe(db: Session) -> None:
     and it keeps the migration history intact."""
     for model in (
         Answer, Result, AuditEvent, ExamSession, ExamEnrolment, ExamQuestion,
-        Exam, QuestionOption, Question, Computer, Lab, Student, Faculty, User,
+        Exam, QuestionOption, QuestionTest, Question, Computer, Lab, Student, Faculty, User,
     ):
         db.execute(delete(model))
     db.commit()
@@ -189,6 +211,34 @@ def _make_questions(db: Session, owner_id: UUID, course: str, spec: list) -> lis
         db.add(question)
         questions.append(question)
     return questions
+
+
+def _coding_question(db: Session, spec: dict, *, owner_id, course: str) -> Question:
+    question = Question(
+        id=uuid4(),
+        owner_id=owner_id,
+        course=course,
+        type=QuestionType.CODING,
+        prompt=spec["prompt"],
+        marks=spec["marks"],
+        language="python",
+        starter_code=spec["starter_code"],
+        time_limit_ms=3_000,
+        memory_limit_mb=128,
+    )
+    question.tests = [
+        QuestionTest(
+            id=uuid4(),
+            position=index,
+            stdin=stdin,
+            expected_stdout=expected,
+            hidden=hidden,
+            weight=weight,
+        )
+        for index, (stdin, expected, hidden, weight) in enumerate(spec["tests"])
+    ]
+    db.add(question)
+    return question
 
 
 def seed(db: Session) -> dict[str, int]:
@@ -279,6 +329,10 @@ def seed(db: Session) -> dict[str, int]:
     cn_q = _make_questions(db, anita.user_id, "Computer Networks", CN_QUESTIONS)
     db_q = _make_questions(db, anita.user_id, "Database Management Systems", DB_QUESTIONS)
     os_q = _make_questions(db, anita.user_id, "Operating Systems", OS_QUESTIONS)
+    # Added to the practice test, which is the exam a demo actually starts, so
+    # the whole path — editor, sandbox, marks — can be walked through rather
+    # than only read about.
+    cn_q.append(_coding_question(db, DS_CODING, owner_id=anita.user_id, course="Computer Networks"))
     db.flush()
 
     def build_exam(*, code, title, course, status, lab, questions, roster, scheduled_offset,

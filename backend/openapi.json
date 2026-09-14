@@ -250,6 +250,46 @@
         "title": "ClientFrame",
         "type": "object"
       },
+      "CodeAnswer": {
+        "description": "A program the candidate wrote.\n\nOnly the source is accepted. The language comes from the question, not\nfrom the answer: letting a candidate name their own runtime would let them\nchoose one the sandbox does not confine.",
+        "properties": {
+          "kind": {
+            "const": "code",
+            "default": "code",
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "maxLength": 100000,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "CodeAnswer",
+        "type": "object"
+      },
+      "CodingRunSummary": {
+        "description": "What a marking run did. Both numbers matter: \"0 marked, 30 skipped\" is\na run that found everything already done, which is a different message\nfrom \"0 marked, 0 skipped\".",
+        "properties": {
+          "graded": {
+            "title": "Graded",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "graded",
+          "skipped"
+        ],
+        "title": "CodingRunSummary",
+        "type": "object"
+      },
       "ComputerOut": {
         "description": "A workstation.\n\nDeliberately has no ``student_id``. Seating is a fact about a candidate\nsitting a particular exam, recorded on the session - a lab hosts a\ndifferent cohort every hour, so a permanent binding cannot hold.",
         "properties": {
@@ -1907,14 +1947,39 @@
             ],
             "title": "Course"
           },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
           "marks": {
             "maximum": 100.0,
             "minimum": 1.0,
             "title": "Marks",
             "type": "integer"
           },
+          "memoryLimitMb": {
+            "anyOf": [
+              {
+                "maximum": 1024.0,
+                "minimum": 16.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memorylimitmb"
+          },
           "options": {
-            "description": "Empty for text questions; at least two entries otherwise.",
+            "description": "Empty for text and coding questions; at least two entries otherwise.",
             "items": {
               "$ref": "#/components/schemas/OptionIn"
             },
@@ -1926,6 +1991,38 @@
             "minLength": 1,
             "title": "Prompt",
             "type": "string"
+          },
+          "starterCode": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startercode"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/TestCaseIn"
+            },
+            "title": "Tests",
+            "type": "array"
+          },
+          "timeLimitMs": {
+            "anyOf": [
+              {
+                "maximum": 30000.0,
+                "minimum": 100.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timelimitms"
           },
           "type": {
             "$ref": "#/components/schemas/QuestionType"
@@ -1958,9 +2055,31 @@
             "title": "Id",
             "type": "string"
           },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
           "marks": {
             "title": "Marks",
             "type": "integer"
+          },
+          "memoryLimitMb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memorylimitmb"
           },
           "options": {
             "items": {
@@ -1972,6 +2091,35 @@
           "prompt": {
             "title": "Prompt",
             "type": "string"
+          },
+          "starterCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startercode"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/TestCaseOut"
+            },
+            "title": "Tests",
+            "type": "array"
+          },
+          "timeLimitMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timelimitms"
           },
           "type": {
             "$ref": "#/components/schemas/QuestionType"
@@ -1990,7 +2138,8 @@
         "enum": [
           "mcq",
           "multiple",
-          "text"
+          "text",
+          "coding"
         ],
         "title": "QuestionType",
         "type": "string"
@@ -2245,6 +2394,7 @@
           "value": {
             "discriminator": {
               "mapping": {
+                "code": "#/components/schemas/CodeAnswer",
                 "multiple": "#/components/schemas/MultipleAnswer",
                 "single": "#/components/schemas/SingleAnswer",
                 "text": "#/components/schemas/TextAnswer"
@@ -2260,6 +2410,9 @@
               },
               {
                 "$ref": "#/components/schemas/TextAnswer"
+              },
+              {
+                "$ref": "#/components/schemas/CodeAnswer"
               }
             ],
             "title": "Value"
@@ -2667,6 +2820,7 @@
             "additionalProperties": {
               "discriminator": {
                 "mapping": {
+                  "code": "#/components/schemas/CodeAnswer",
                   "multiple": "#/components/schemas/MultipleAnswer",
                   "single": "#/components/schemas/SingleAnswer",
                   "text": "#/components/schemas/TextAnswer"
@@ -2682,6 +2836,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/TextAnswer"
+                },
+                {
+                  "$ref": "#/components/schemas/CodeAnswer"
                 }
               ]
             },
@@ -2966,6 +3123,17 @@
             "title": "Id",
             "type": "string"
           },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
           "marks": {
             "title": "Marks",
             "type": "integer"
@@ -2985,6 +3153,24 @@
           "prompt": {
             "title": "Prompt",
             "type": "string"
+          },
+          "starterCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startercode"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/StudentTestCaseOut"
+            },
+            "title": "Tests",
+            "type": "array"
           },
           "type": {
             "$ref": "#/components/schemas/QuestionType"
@@ -3007,6 +3193,25 @@
         ],
         "title": "StudentStatus",
         "type": "string"
+      },
+      "StudentTestCaseOut": {
+        "description": "Candidate-facing test case \u2014 a worked example, nothing more.\n\nNo ``expected_stdout``, for the same structural reason ``StudentOptionOut``\nhas no ``is_correct``: a coding question's expected outputs *are* its answer\nkey, and a candidate who can read them can print them without solving\nanything. Hidden cases never reach this model at all; visible ones arrive\nstripped of their answer, so a candidate sees the shape of the input and\nhas to work out what comes back.",
+        "properties": {
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "stdin": {
+            "title": "Stdin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "stdin"
+        ],
+        "title": "StudentTestCaseOut",
+        "type": "object"
       },
       "StudentUpdate": {
         "properties": {
@@ -3161,6 +3366,77 @@
           }
         },
         "title": "SubmitRequest",
+        "type": "object"
+      },
+      "TestCaseIn": {
+        "description": "One test case for a coding question. Faculty scope only.",
+        "properties": {
+          "expectedStdout": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Expectedstdout",
+            "type": "string"
+          },
+          "hidden": {
+            "default": true,
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "stdin": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Stdin",
+            "type": "string"
+          },
+          "weight": {
+            "default": 1,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Weight",
+            "type": "integer"
+          }
+        },
+        "title": "TestCaseIn",
+        "type": "object"
+      },
+      "TestCaseOut": {
+        "description": "Faculty-facing test case. Carries the expected output.",
+        "properties": {
+          "expectedStdout": {
+            "title": "Expectedstdout",
+            "type": "string"
+          },
+          "hidden": {
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "stdin": {
+            "title": "Stdin",
+            "type": "string"
+          },
+          "weight": {
+            "title": "Weight",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "stdin",
+          "expectedStdout",
+          "hidden",
+          "weight"
+        ],
+        "title": "TestCaseOut",
         "type": "object"
       },
       "TextAnswer": {
@@ -4113,6 +4389,65 @@
           }
         ],
         "summary": "Cancel Exam",
+        "tags": [
+          "exams"
+        ]
+      }
+    },
+    "/api/v1/exams/{exam_id}/coding/run": {
+      "post": {
+        "description": "Mark this exam's coding answers now, rather than waiting for the sweep.\n\nNormally unnecessary \u2014 submitted papers are marked in the background within\na minute. This exists for the case that is not normal: a question whose\ntest cases were wrong. Fix them, re-run with ``force``, and every candidate\nis re-marked against the corrected question.\n\nRefuses outright when the sandbox is unavailable. Reporting \"0 marked\" on a\nmachine that cannot run code at all would read as \"nobody scored anything\".",
+        "operationId": "runCodingAnswers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exam_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Exam Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CodingRunSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Coding Answers",
         "tags": [
           "exams"
         ]

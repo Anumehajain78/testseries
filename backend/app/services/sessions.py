@@ -28,7 +28,14 @@ from app.db.models import (
     Question,
     Result,
 )
-from app.domain.paper import AuthoredOption, AuthoredQuestion, draw_paper, presented_options, score_paper
+from app.domain.paper import (
+    AuthoredOption,
+    AuthoredQuestion,
+    AuthoredTest,
+    draw_paper,
+    presented_options,
+    score_paper,
+)
 from app.domain.transitions import accepts_candidate_writes
 from app.schemas.auth import Principal
 from app.schemas.enums import (
@@ -43,7 +50,7 @@ from app.schemas.enums import (
 )
 from app.schemas.common import AnswerValue
 from app.schemas.exam import ExamConfig
-from app.schemas.question import StudentOptionOut, StudentQuestionOut
+from app.schemas.question import StudentOptionOut, StudentQuestionOut, StudentTestCaseOut
 from app.schemas.session import (
     MarkingItem,
     SaveAnswerResponse,
@@ -78,7 +85,10 @@ def _authored(db: Session, exam_id: UUID) -> dict[str, AuthoredQuestion]:
     rows = db.execute(
         select(ExamQuestion, Question)
         .join(Question, Question.id == ExamQuestion.question_id)
-        .options(selectinload(ExamQuestion.question).selectinload(Question.options))
+        .options(
+            selectinload(ExamQuestion.question).selectinload(Question.options),
+            selectinload(ExamQuestion.question).selectinload(Question.tests),
+        )
         .where(ExamQuestion.exam_id == exam_id)
         .order_by(ExamQuestion.position)
     ).all()
@@ -90,6 +100,12 @@ def _authored(db: Session, exam_id: UUID) -> dict[str, AuthoredQuestion]:
             marks=link.marks_override or question.marks,
             options=tuple(
                 AuthoredOption(o.id, o.position, o.body, o.is_correct) for o in question.options
+            ),
+            language=question.language,
+            starter_code=question.starter_code,
+            tests=tuple(
+                AuthoredTest(t.position, t.stdin, t.expected_stdout, t.hidden, t.weight)
+                for t in question.tests
             ),
         )
         for link, question in rows
@@ -120,6 +136,17 @@ def _paper(db: Session, session: ExamSession, exam: Exam) -> SessionPaper:
                     for index, option in enumerate(
                         presented_options(question, option_order.get(question_id))
                     )
+                ],
+                language=question.language,
+                starter_code=question.starter_code,
+                # Hidden cases are dropped here, and the visible ones reach a
+                # model with no field for the expected output. Both halves
+                # matter: dropping alone would still be one refactor away from
+                # handing over the key.
+                tests=[
+                    StudentTestCaseOut(position=test.position, stdin=test.stdin)
+                    for test in question.tests
+                    if not test.hidden
                 ],
             )
         )

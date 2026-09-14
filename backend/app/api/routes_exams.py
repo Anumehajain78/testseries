@@ -10,7 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import DbSession, Staff
-from app.services import commands, queries, sessions as session_service
+from app.services import coding, commands, queries, sessions as session_service
 from app.schemas.common import ErrorDetail, Page
 from app.schemas.enums import ExamStatus
 from app.schemas.exam import (
@@ -23,7 +23,14 @@ from app.schemas.exam import (
     ExamWindow,
 )
 from app.schemas.result import PublishResultsRequest, ResultsPage
-from app.schemas.session import AwardMarksRequest, MarkingItem, MonitorSnapshot, SessionRow
+from app.domain.sandbox import SandboxUnavailable
+from app.schemas.session import (
+    AwardMarksRequest,
+    CodingRunSummary,
+    MarkingItem,
+    MonitorSnapshot,
+    SessionRow,
+)
 
 router = APIRouter(prefix="/exams", tags=["exams"])
 
@@ -160,6 +167,31 @@ def get_exam_results(exam_id: UUID, db: DbSession, _: Staff) -> ResultsPage:
     if results is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment not found")
     return results
+
+
+@router.post(
+    "/{exam_id}/coding/run",
+    response_model=CodingRunSummary,
+    operation_id="runCodingAnswers",
+)
+def run_coding_answers(
+    exam_id: UUID, db: DbSession, _: Staff, force: bool = False
+) -> CodingRunSummary:
+    """Mark this exam's coding answers now, rather than waiting for the sweep.
+
+    Normally unnecessary — submitted papers are marked in the background within
+    a minute. This exists for the case that is not normal: a question whose
+    test cases were wrong. Fix them, re-run with ``force``, and every candidate
+    is re-marked against the corrected question.
+
+    Refuses outright when the sandbox is unavailable. Reporting "0 marked" on a
+    machine that cannot run code at all would read as "nobody scored anything".
+    """
+    try:
+        result = coding.grade_exam(db, exam_id, force=force)
+    except SandboxUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    return CodingRunSummary(**result)
 
 
 @router.get("/{exam_id}/marking", response_model=list[MarkingItem], operation_id="listForMarking")

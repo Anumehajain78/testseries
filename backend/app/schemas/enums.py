@@ -92,6 +92,10 @@ class QuestionType(StrEnum):
     MCQ = "mcq"
     MULTIPLE = "multiple"
     TEXT = "text"
+    #: Candidate writes a program; the server runs it against test cases.
+    #: Scored after submission rather than during it, because running code
+    #: takes seconds and a room submits at once.
+    CODING = "coding"
 
 
 class SubmitMode(StrEnum):

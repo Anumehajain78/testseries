@@ -23,6 +23,16 @@ class OptionIn(Schema):
     is_correct: bool = Field(default=False, alias="isCorrect")
 
 
+class TestCaseIn(Schema):
+    """One test case for a coding question. Faculty scope only."""
+
+    stdin: str = Field(default="", max_length=20_000)
+    expected_stdout: str = Field(default="", max_length=20_000, alias="expectedStdout")
+    #: Hidden cases are the answer key. A visible one is a worked example.
+    hidden: bool = True
+    weight: int = Field(default=1, ge=1, le=100)
+
+
 class QuestionIn(Schema):
     """Authoring payload. Faculty scope only."""
 
@@ -32,8 +42,14 @@ class QuestionIn(Schema):
     course: str | None = None
     options: list[OptionIn] = Field(
         default_factory=list,
-        description="Empty for text questions; at least two entries otherwise.",
+        description="Empty for text and coding questions; at least two entries otherwise.",
     )
+    # Coding questions only.
+    language: str | None = Field(default=None, max_length=40)
+    starter_code: str | None = Field(default=None, max_length=20_000, alias="starterCode")
+    time_limit_ms: int | None = Field(default=None, ge=100, le=30_000, alias="timeLimitMs")
+    memory_limit_mb: int | None = Field(default=None, ge=16, le=1_024, alias="memoryLimitMb")
+    tests: list[TestCaseIn] = Field(default_factory=list)
 
 
 class OptionOut(Schema):
@@ -43,6 +59,17 @@ class OptionOut(Schema):
     position: int
     body: str
     is_correct: bool = Field(alias="isCorrect")
+
+
+class TestCaseOut(Schema):
+    """Faculty-facing test case. Carries the expected output."""
+
+    id: UUID
+    position: int
+    stdin: str
+    expected_stdout: str = Field(alias="expectedStdout")
+    hidden: bool
+    weight: int
 
 
 class QuestionOut(Schema):
@@ -58,6 +85,11 @@ class QuestionOut(Schema):
     marks: int
     course: str | None = None
     options: list[OptionOut] = Field(default_factory=list)
+    language: str | None = None
+    starter_code: str | None = Field(default=None, alias="starterCode")
+    time_limit_ms: int | None = Field(default=None, alias="timeLimitMs")
+    memory_limit_mb: int | None = Field(default=None, alias="memoryLimitMb")
+    tests: list[TestCaseOut] = Field(default_factory=list)
 
 
 class StudentOptionOut(Schema):
@@ -74,6 +106,21 @@ class StudentOptionOut(Schema):
     body: str
 
 
+class StudentTestCaseOut(Schema):
+    """Candidate-facing test case — a worked example, nothing more.
+
+    No ``expected_stdout``, for the same structural reason ``StudentOptionOut``
+    has no ``is_correct``: a coding question's expected outputs *are* its answer
+    key, and a candidate who can read them can print them without solving
+    anything. Hidden cases never reach this model at all; visible ones arrive
+    stripped of their answer, so a candidate sees the shape of the input and
+    has to work out what comes back.
+    """
+
+    position: int
+    stdin: str
+
+
 class StudentQuestionOut(Schema):
     """Candidate-facing question.
 
@@ -88,3 +135,7 @@ class StudentQuestionOut(Schema):
     marks: int
     position: int = Field(description="Position in this candidate's paper, not the authored order.")
     options: list[StudentOptionOut] = Field(default_factory=list)
+    #: Coding questions only, and null otherwise.
+    language: str | None = None
+    starter_code: str | None = Field(default=None, alias="starterCode")
+    tests: list[StudentTestCaseOut] = Field(default_factory=list)

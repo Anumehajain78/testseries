@@ -63,8 +63,20 @@ class TextAnswer(Schema):
     text: str = Field(max_length=20_000)
 
 
+class CodeAnswer(Schema):
+    """A program the candidate wrote.
+
+    Only the source is accepted. The language comes from the question, not
+    from the answer: letting a candidate name their own runtime would let them
+    choose one the sandbox does not confine.
+    """
+
+    kind: Literal["code"] = "code"
+    source: str = Field(max_length=100_000)
+
+
 AnswerValue = Annotated[
-    SingleAnswer | MultipleAnswer | TextAnswer,
+    SingleAnswer | MultipleAnswer | TextAnswer | CodeAnswer,
     Field(discriminator="kind"),
 ]
 

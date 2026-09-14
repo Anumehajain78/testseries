@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AuditEvent, Exam, ExamSession
 from app.db.session import SessionLocal
+from app.services import coding
 from app.domain.transitions import SWEEPABLE_TO_AUTO_SUBMIT, SWEEPABLE_TO_TERMINATED
 from app.schemas.enums import (
     AuditCategory,
@@ -116,6 +117,15 @@ async def sweep_loop() -> None:
                 outcome = sweep_once(db)
             if outcome["exams"]:
                 log.info("deadline sweep closed %s", outcome)
+
+            # Marking programs rides along with the sweep rather than having a
+            # loop of its own: both are "work the server owes a paper that has
+            # already been submitted", and one background task per worker is
+            # easier to reason about than two.
+            with SessionLocal() as db:
+                marked = coding.claim_and_grade(db)
+            if marked["graded"]:
+                log.info("marked %d coding answer(s)", marked["graded"])
         except asyncio.CancelledError:
             raise
         except Exception:  # pragma: no cover - defensive

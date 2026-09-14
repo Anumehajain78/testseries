@@ -31,6 +31,7 @@ from app.db.models import (
     Faculty,
     Question,
     QuestionOption,
+    QuestionTest,
     User,
 )
 from app.domain.seating import Workstation, allocate_seats, capacity_shortfall
@@ -142,6 +143,44 @@ def _staff_record(db: Session, actor_id: UUID, department: str) -> None:
     db.flush()
 
 
+def _build_question(authored, *, owner_id: UUID, default_course: str | None) -> Question:
+    """One authored question, in the shape the bank stores.
+
+    Shared by create and update rather than written twice. When it was written
+    twice, a question type added to one path was silently dropped by the
+    other — editing a draft would have quietly discarded every test case on a
+    coding question and left it unmarkable.
+    """
+    question = Question(
+        id=uuid4(),
+        owner_id=owner_id,
+        course=authored.course or default_course,
+        type=authored.type,
+        prompt=authored.prompt,
+        marks=authored.marks,
+        language=authored.language,
+        starter_code=authored.starter_code,
+        time_limit_ms=authored.time_limit_ms,
+        memory_limit_mb=authored.memory_limit_mb,
+    )
+    question.options = [
+        QuestionOption(id=uuid4(), position=index, body=option.body, is_correct=option.is_correct)
+        for index, option in enumerate(authored.options)
+    ]
+    question.tests = [
+        QuestionTest(
+            id=uuid4(),
+            position=index,
+            stdin=test.stdin,
+            expected_stdout=test.expected_stdout,
+            hidden=test.hidden,
+            weight=test.weight,
+        )
+        for index, test in enumerate(authored.tests)
+    ]
+    return question
+
+
 def create_exam(db: Session, payload: ExamCreate, *, actor_id: UUID, actor_label: str):
     _staff_record(db, actor_id, payload.department)
     exam = Exam(
@@ -170,18 +209,7 @@ def create_exam(db: Session, payload: ExamCreate, *, actor_id: UUID, actor_label
 
     # Inline questions join the bank rather than being trapped in this exam.
     for authored in payload.questions:
-        question = Question(
-            id=uuid4(),
-            owner_id=actor_id,
-            course=authored.course or payload.course,
-            type=authored.type,
-            prompt=authored.prompt,
-            marks=authored.marks,
-        )
-        question.options = [
-            QuestionOption(id=uuid4(), position=index, body=option.body, is_correct=option.is_correct)
-            for index, option in enumerate(authored.options)
-        ]
+        question = _build_question(authored, owner_id=actor_id, default_course=payload.course)
         db.add(question)
         db.flush()
         db.add(ExamQuestion(exam_id=exam.id, question_id=question.id, position=position))
@@ -246,18 +274,7 @@ def update_exam(db: Session, exam_id: UUID, payload, *, actor_id: UUID, actor_la
             db.add(ExamQuestion(exam_id=exam_id, question_id=question_id, position=position))
             position += 1
         for authored in payload.questions or []:
-            question = Question(
-                id=uuid4(),
-                owner_id=actor_id,
-                course=authored.course or exam.course,
-                type=authored.type,
-                prompt=authored.prompt,
-                marks=authored.marks,
-            )
-            question.options = [
-                QuestionOption(id=uuid4(), position=index, body=option.body, is_correct=option.is_correct)
-                for index, option in enumerate(authored.options)
-            ]
+            question = _build_question(authored, owner_id=actor_id, default_course=exam.course)
             db.add(question)
             db.flush()
             db.add(ExamQuestion(exam_id=exam_id, question_id=question.id, position=position))

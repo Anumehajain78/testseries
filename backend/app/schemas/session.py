@@ -197,3 +197,12 @@ class MarkingItem(Schema):
 
 class AwardMarksRequest(Schema):
     marks: float = Field(ge=0)
+
+
+class CodingRunSummary(Schema):
+    """What a marking run did. Both numbers matter: "0 marked, 30 skipped" is
+    a run that found everything already done, which is a different message
+    from "0 marked, 0 skipped"."""
+
+    graded: int
+    skipped: int

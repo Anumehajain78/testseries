@@ -33,6 +33,30 @@ class AuthoredOption:
     is_correct: bool
 
 
+#: Types whose marks arrive after the paper is submitted rather than during it.
+#: A written answer waits for a person; a program waits for the runner. Either
+#: way the total is incomplete until then, and saying so is the whole point of
+#: the pending count — a paper that reports 0/20 while nobody has marked it
+#: reads as a candidate who failed.
+AWAITING_MARKS = frozenset({QuestionType.TEXT, QuestionType.CODING})
+
+
+@dataclass(frozen=True)
+class AuthoredTest:
+    """A coding question's test case, as authored.
+
+    Carries ``expected_stdout`` in the same way :class:`AuthoredOption` carries
+    ``is_correct``: this is the server's own view. Stripping it is the job of
+    the candidate-facing schema, which has no field for it.
+    """
+
+    position: int
+    stdin: str
+    expected_stdout: str
+    hidden: bool
+    weight: int
+
+
 @dataclass(frozen=True)
 class AuthoredQuestion:
     id: UUID
@@ -40,6 +64,10 @@ class AuthoredQuestion:
     prompt: str
     marks: int
     options: tuple[AuthoredOption, ...]
+    # Coding questions only.
+    language: str | None = None
+    starter_code: str | None = None
+    tests: tuple[AuthoredTest, ...] = ()
 
 
 def draw_paper(
@@ -72,7 +100,9 @@ def draw_paper(
     option_order: dict[str, list[int]] = {}
     for question in ordered:
         positions = [option.position for option in question.options]
-        if randomize_options and question.type is not QuestionType.TEXT:
+        # Only questions that *have* options can have them shuffled. Naming the
+        # types would mean editing this every time one is added.
+        if randomize_options and question.options:
             rng.shuffle(positions)
         option_order[str(question.id)] = positions
 
@@ -140,9 +170,11 @@ def score_question(
         chosen = to_authored_positions(order, [o for o in options if isinstance(o, int)])
         return float(question.marks) if chosen == correct and correct else 0.0
 
-    # Written answers are scored by a person. Until someone has read it the
-    # award is None, which is not the same as nought — see `score_paper`.
-    if kind == "text":
+    # Neither of these is scored while the paper is being sat. A written answer
+    # waits for a person; a program waits for the runner, because executing it
+    # takes seconds and a room submits at once. Until the award arrives it is
+    # None, which is not the same as nought — see `score_paper`.
+    if kind in ("text", "code"):
         return float(awarded) if awarded is not None else 0.0
 
     return 0.0
@@ -155,14 +187,18 @@ def score_paper(
     answers: dict[str, dict],
     awards: dict[str, float | None] | None = None,
 ) -> tuple[float, float, int]:
-    """Total awarded, total available, and how many answers still need a human.
+    """Total awarded, total available, and how many answers are still unmarked.
+
+    The third number covers both written answers waiting for a person and
+    programs waiting for the runner: what they have in common is that the total
+    is not final yet, which is the only thing a results screen needs to know.
 
     The maximum is the marks on *their* paper, not the whole bank — with
     ``questions_per_student`` two candidates can legitimately sit different
     numbers of questions, and each must be scored out of their own total.
 
-    The third number is why this returns three: a written answer nobody has
-    read yet contributes nothing, and a total that quietly treats it as zero
+    A written answer nobody has read yet contributes nothing, and a total that
+    quietly treats it as zero
     would read as a finished result. Callers use the count to say "marking
     pending" rather than publishing a score that is not yet true.
     """
@@ -176,7 +212,7 @@ def score_paper(
             continue
         available += float(question.marks)
         award = (awards or {}).get(question_id)
-        if question.type is QuestionType.TEXT and answers.get(question_id) and award is None:
+        if question.type in AWAITING_MARKS and answers.get(question_id) and award is None:
             unmarked += 1
         given += score_question(
             question, (option_order or {}).get(question_id), answers.get(question_id), award
