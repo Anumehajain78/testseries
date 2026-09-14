@@ -182,3 +182,41 @@ class TestRefusingToRunUnsafely:
         monkeypatch.setattr("app.domain.sandbox.sandbox_available", lambda: None)
         with pytest.raises(SandboxUnavailable):
             run_python("print('should never run')")
+
+
+class TestAForkBomb:
+    def test_one_is_stopped_by_the_clock_even_though_it_is_not_capped(self):
+        """Honest about which defence is doing the work.
+
+        There is no process-count limit — RLIMIT_NPROC is per user id, and the
+        sandbox shares the server's, so a useful cap would stop the server.
+        What contains a bomb is the wall clock and the process-group kill, so
+        that is what this asserts.
+        """
+        result = run(
+            """
+            import os, time
+            for _ in range(60):
+                if os.fork() == 0:
+                    time.sleep(30)
+                    os._exit(0)
+            time.sleep(30)
+            """,
+            time_limit_ms=1_500,
+            memory_limit_mb=64,
+        )
+        assert result.outcome in (Outcome.TIMED_OUT, Outcome.FAILED, Outcome.OUT_OF_MEMORY)
+
+    def test_an_ordinary_subprocess_still_works(self):
+        """A candidate may reasonably use a helper process, and nothing here
+        should break that."""
+        result = run(
+            """
+            import subprocess, sys
+            out = subprocess.run([sys.executable, '-c', 'print(6*7)'], capture_output=True)
+            print(out.stdout.decode().strip())
+            """,
+            time_limit_ms=8_000,
+        )
+        assert result.outcome is Outcome.OK
+        assert result.stdout.strip() == "42"

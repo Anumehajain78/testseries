@@ -27,9 +27,15 @@ that quietly degrades to running candidate code unconfined is worse than one
 that refuses, because the failure is invisible until it is not.
 
 What this does not defend against, stated plainly so nobody assumes otherwise:
-a kernel bug that escapes a user namespace, and side channels between
-concurrently running programs. Both are real; neither is addressed here beyond
-keeping the attack surface small.
+
+* A kernel bug that escapes a user namespace.
+* Side channels between programs running at the same time.
+* A fork bomb, by count. Processes are capped per *user* by the only limit
+  available here, and the sandbox runs as the same user as the server — a cap
+  low enough to matter would stop the server too. What bounds one is the wall
+  clock and the memory ceiling, both of which apply, and the process-group
+  kill that reaps whatever it spawned. Capping properly needs a cgroup, which
+  needs privileges this deliberately does not take.
 """
 
 from __future__ import annotations
@@ -146,6 +152,14 @@ def _limits(memory_mb: int) -> None:
     # A second beyond the wall clock, so the timeout below is what normally
     # fires and the message a candidate sees is the accurate one.
     resource.setrlimit(resource.RLIMIT_CPU, (30, 31))
+    # Deliberately NOT RLIMIT_NPROC. It is enforced per user id, and the
+    # sandbox runs as the same user as the server, so a limit low enough to
+    # stop a fork bomb is also low enough to stop bubblewrap starting at all —
+    # the whole machine's processes for that user already exceed it. Capping
+    # processes properly needs a cgroup, which needs delegation this does not
+    # have. What bounds a fork bomb here is the wall clock and the memory
+    # ceiling, and that is said plainly in the module docstring rather than
+    # implied to be more.
     # Its own process group, so a timeout kills the children a program spawned
     # rather than only the program.
     os.setsid()
