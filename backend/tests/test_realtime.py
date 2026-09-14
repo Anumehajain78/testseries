@@ -86,7 +86,7 @@ class TestSocketIsGuarded:
                 pass
 
     def test_a_token_naming_a_deleted_account_is_refused(self, client, ready_exam):
-        access, _, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        access = issue_user_tokens(uuid.uuid4(), Role.FACULTY).access_token
         with pytest.raises(Exception):
             with client.websocket_connect(f"/ws/exams/{ready_exam}/monitor?token={access}"):
                 pass

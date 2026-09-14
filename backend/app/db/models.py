@@ -114,6 +114,39 @@ class Faculty(Base, TimestampMixin):
     user: Mapped[User] = relationship(back_populates="faculty")
 
 
+class RefreshToken(Base, TimestampMixin):
+    """One refresh token the server will still honour.
+
+    Access tokens stay stateless — they are short enough that a revocation
+    check on every request would buy minutes of exposure at the cost of a query
+    per request. Refresh tokens live for hours, so they are tracked here and
+    each one is good for exactly one exchange.
+
+    ``session_id`` is the sign-in, not the token: minted once when somebody
+    signs in and carried through every rotation. Keying revocation on it is
+    what keeps two devices independent — a single current-token id per user
+    would sign a candidate out of the lab machine the moment they renewed on
+    their own laptop, which is why the earlier attempt at this was abandoned.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    #: The token's own ``jti``, so a presented token is found by primary key
+    #: rather than by scanning everything the user holds.
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    #: Stamped when the token is exchanged, or when its session signs out. The
+    #: row is kept rather than deleted so that presenting the token again is
+    #: recognisably a replay, not merely an id nobody has heard of.
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 # ---------------------------------------------------------------------------
 # Venues
 # ---------------------------------------------------------------------------

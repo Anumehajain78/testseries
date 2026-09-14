@@ -5,6 +5,7 @@ here reads the database — that separation keeps the crypto testable on its own
 and stops authorization logic leaking into token handling.
 """
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -69,35 +70,77 @@ ACCESS = "access"
 REFRESH = "refresh"
 
 
-def _encode(claims: dict[str, Any], expires: timedelta) -> tuple[str, datetime]:
+def _encode(claims: dict[str, Any], expires: timedelta) -> tuple[str, UUID, datetime]:
     settings = get_settings()
     now = datetime.now(UTC)
     expires_at = now + expires
     # A unique id per token. Without it two tokens minted for the same subject
     # in the same second are byte-identical, which would make refresh-token
     # rotation a no-op — the "new" token would be the old one. It is also the
-    # handle a revocation list would need later.
-    payload = {**claims, "jti": str(uuid4()), "iat": now, "exp": expires_at}
+    # handle the stored-token table revokes a refresh token by.
+    token_id = uuid4()
+    payload = {**claims, "jti": str(token_id), "iat": now, "exp": expires_at}
     token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-    return token, expires_at
+    return token, token_id, expires_at
 
 
-def issue_user_tokens(user_id: UUID, role: Role) -> tuple[str, str, datetime]:
+@dataclass(frozen=True)
+class UserTokens:
+    """One issued pair, plus what the server must record to be able to end it.
+
+    ``session_id`` names the *sign-in*, not the token. It is minted once when
+    somebody signs in and carried unchanged through every rotation afterwards,
+    which is what makes revocation per-device: a single current-token id per
+    user would sign a candidate out of the lab machine every time their own
+    laptop renewed.
+    """
+
+    access_token: str
+    refresh_token: str
+    #: When the *access* token dies. The refresh half outlives it by hours, and
+    #: this is the only expiry the client is told about.
+    expires_at: datetime
+    #: ``jti`` of the refresh token, and the primary key of its stored row.
+    refresh_id: UUID
+    session_id: UUID
+    refresh_expires_at: datetime
+
+
+def issue_user_tokens(user_id: UUID, role: Role, *, session_id: UUID | None = None) -> UserTokens:
     """Access and refresh tokens for a human principal.
 
     The refresh lifetime outlasts a long paper plus overrun, because being
     logged out mid-examination is not an acceptable failure mode.
+
+    Pass the ``session_id`` of an existing sign-in to rotate inside it; omit it
+    to begin a new one.
     """
     settings = get_settings()
-    access, expires_at = _encode(
+    session_id = session_id or uuid4()
+    access, _, expires_at = _encode(
         {"sub": str(user_id), "typ": ACCESS, "sty": SubjectType.USER.value, "role": role.value},
         timedelta(minutes=settings.access_token_minutes),
     )
-    refresh, _ = _encode(
-        {"sub": str(user_id), "typ": REFRESH, "sty": SubjectType.USER.value},
+    # ``sid`` travels on the refresh token alone. Access tokens are verified by
+    # signature and nothing else, so putting a session handle on one would
+    # imply a revocation check that deliberately does not happen there.
+    refresh, refresh_id, refresh_expires_at = _encode(
+        {
+            "sub": str(user_id),
+            "typ": REFRESH,
+            "sty": SubjectType.USER.value,
+            "sid": str(session_id),
+        },
         timedelta(hours=settings.refresh_token_hours),
     )
-    return access, refresh, expires_at
+    return UserTokens(
+        access_token=access,
+        refresh_token=refresh,
+        expires_at=expires_at,
+        refresh_id=refresh_id,
+        session_id=session_id,
+        refresh_expires_at=refresh_expires_at,
+    )
 
 
 def issue_machine_token(machine_id: str, lab_id: UUID) -> tuple[str, datetime]:
@@ -108,10 +151,11 @@ def issue_machine_token(machine_id: str, lab_id: UUID) -> tuple[str, datetime]:
     handler having to remember that machines exist.
     """
     settings = get_settings()
-    return _encode(
+    token, _, expires_at = _encode(
         {"sub": machine_id, "typ": ACCESS, "sty": SubjectType.MACHINE.value, "lab": str(lab_id)},
         timedelta(hours=settings.machine_token_hours),
     )
+    return token, expires_at
 
 
 class TokenError(Exception):

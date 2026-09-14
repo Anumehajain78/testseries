@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Release workstation</title>
+    <link rel="stylesheet" href="shell.css" />
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">Invigilator</p>
+      <h1>Release this workstation</h1>
+      <p>
+        Closes the examination window and ends this client. The candidate's
+        answers are held by the server, not by this machine, so nothing is lost
+        — but anyone mid-paper will need the client started again.
+      </p>
+    </header>
+
+    <div id="error" class="note error" hidden></div>
+
+    <form id="form">
+      <label>
+        <span>Staff email</span>
+        <input id="email" type="email" autocomplete="off" required />
+      </label>
+      <label>
+        <span>Password</span>
+        <input id="password" type="password" autocomplete="off" required />
+      </label>
+      <div class="actions">
+        <button id="submit" type="submit">Release</button>
+        <button id="cancel" class="secondary" type="button">Cancel</button>
+      </div>
+    </form>
+
+    <script>
+      const invoke = window.__TAURI__.core.invoke;
+      const error = document.getElementById("error");
+      const submit = document.getElementById("submit");
+
+      const show = (text) => {
+        error.textContent = text;
+        error.hidden = !text;
+      };
+
+      document.getElementById("cancel").addEventListener("click", () => {
+        invoke("dismiss_unlock");
+      });
+
+      // Escape is the reflex for a dialog opened by accident, and leaving the
+      // candidate looking at this prompt is worse than any risk of dismissing
+      // it early.
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") invoke("dismiss_unlock");
+      });
+
+      document.getElementById("form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        show("");
+        submit.disabled = true;
+        try {
+          const released = await invoke("unlock", {
+            email: document.getElementById("email").value,
+            password: document.getElementById("password").value,
+          });
+          show("");
+          submit.textContent = "Released by " + released.fullName;
+        } catch (failure) {
+          show(String(failure));
+          submit.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

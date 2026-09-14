@@ -54,7 +54,21 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Logout */
+        /**
+         * Logout
+         * @description End one sign-in.
+         *
+         *     Takes the refresh token, because that is the thing that outlives the
+         *     browser tab; the access token expires on its own within the half hour.
+         *     Only the presented session is ended — signing out of a lab machine must not
+         *     sign the same candidate out of their own laptop.
+         *
+         *     The body is optional and a token that no longer verifies is not an error: a
+         *     client that has already discarded its tokens still gets its 204, because
+         *     refusing a sign-out leaves somebody stuck on a screen they are trying to
+         *     leave, and answering differently for a genuine token would make this an
+         *     oracle for whether one was real.
+         */
         post: operations["logout"];
         delete?: never;
         options?: never;
@@ -144,15 +158,11 @@ export interface paths {
          *     ejected part-way through a ninety-minute paper, which is a worse failure
          *     than the one short lifetimes are guarding against.
          *
-         *     Each renewal returns a *new* refresh token, and the client replaces the one
-         *     it holds. The previous token is not invalidated, though: it stays valid
-         *     until it expires on its own. Killing it on use needs server-side state —
-         *     the current token id stored per session — and that is a separate change,
-         *     because a single stored id per user would sign someone out of one device
-         *     every time they used another.
-         *
-         *     So this shortens exposure, it does not end it. A captured refresh token is
-         *     good until expiry.
+         *     Renewal is single-use. The presented token is consumed as the replacement
+         *     is minted, so a copy taken off the wire is worth one renewal at most, and
+         *     nothing at all once the real client has renewed. The replacement stays
+         *     inside the same session id, which is why this does not sign the same person
+         *     out of their other machine — the failure that sank the previous attempt.
          */
         post: operations["refreshToken"];
         delete?: never;
@@ -2504,7 +2514,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RefreshRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             204: {
@@ -2512,6 +2526,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

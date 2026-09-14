@@ -47,7 +47,7 @@ class TestPasswordHashing:
 class TestUserTokens:
     def test_an_access_token_carries_subject_role_and_type(self):
         user_id = uuid.uuid4()
-        access, _, _ = issue_user_tokens(user_id, Role.FACULTY)
+        access = issue_user_tokens(user_id, Role.FACULTY).access_token
         payload = decode_token(access)
         assert payload["sub"] == str(user_id)
         assert payload["role"] == Role.FACULTY.value
@@ -56,16 +56,16 @@ class TestUserTokens:
     def test_a_refresh_token_is_rejected_where_an_access_token_is_required(self):
         # Without the type check a refresh token would silently grant a much
         # longer-lived credential than intended.
-        _, refresh, _ = issue_user_tokens(uuid.uuid4(), Role.STUDENT)
+        refresh = issue_user_tokens(uuid.uuid4(), Role.STUDENT).refresh_token
         with pytest.raises(TokenError):
             decode_token(refresh, expected_type=ACCESS)
 
     def test_a_refresh_token_validates_as_a_refresh_token(self):
-        _, refresh, _ = issue_user_tokens(uuid.uuid4(), Role.STUDENT)
+        refresh = issue_user_tokens(uuid.uuid4(), Role.STUDENT).refresh_token
         assert decode_token(refresh, expected_type=REFRESH)["sub"]
 
     def test_a_tampered_token_is_rejected(self):
-        access, _, _ = issue_user_tokens(uuid.uuid4(), Role.ADMIN)
+        access = issue_user_tokens(uuid.uuid4(), Role.ADMIN).access_token
         head, payload, signature = access.split(".")
         with pytest.raises(TokenError):
             decode_token(f"{head}.{payload}.{signature[:-2]}xx")
@@ -75,7 +75,7 @@ class TestUserTokens:
             decode_token("not.a.token")
 
     def test_the_access_token_expiry_is_reported_to_the_client(self):
-        _, _, expires_at = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        expires_at = issue_user_tokens(uuid.uuid4(), Role.FACULTY).expires_at
         assert expires_at > datetime.now(UTC)
 
 
@@ -144,7 +144,7 @@ class TestRenewalSafety:
     def test_an_access_token_cannot_be_exchanged_for_a_new_pair(self):
         """The other direction of the type check. If a leaked access token
         could renew itself, its short lifetime would mean nothing."""
-        access, _, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        access = issue_user_tokens(uuid.uuid4(), Role.FACULTY).access_token
         with pytest.raises(TokenError):
             decode_token(access, expected_type=REFRESH)
 
@@ -156,7 +156,7 @@ class TestRenewalSafety:
     def test_a_refresh_token_carries_no_role(self):
         """It only says who you are; the database says what you may do. A role
         revoked since sign-in therefore takes effect at the next renewal."""
-        _, refresh, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        refresh = issue_user_tokens(uuid.uuid4(), Role.FACULTY).refresh_token
         assert "role" not in decode_token(refresh, expected_type=REFRESH)
 
     def test_every_issued_token_is_unique(self):
@@ -164,12 +164,45 @@ class TestRenewalSafety:
         for one subject in the same second were once byte-identical, which
         made rotating them a no-op."""
         user_id = uuid.uuid4()
-        _, first, _ = issue_user_tokens(user_id, Role.FACULTY)
-        _, second, _ = issue_user_tokens(user_id, Role.FACULTY)
+        first = issue_user_tokens(user_id, Role.FACULTY).refresh_token
+        second = issue_user_tokens(user_id, Role.FACULTY).refresh_token
         assert first != second
         assert decode_token(first, expected_type=REFRESH)["jti"] != decode_token(
             second, expected_type=REFRESH
         )["jti"]
+
+    def test_a_refresh_token_names_the_sign_in_it_belongs_to(self):
+        """Revocation needs a handle for *one device*. Without a session on the
+        token there is nothing to revoke but the user, which signs every
+        machine out at once."""
+        tokens = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        claims = decode_token(tokens.refresh_token, expected_type=REFRESH)
+        assert claims["sid"] == str(tokens.session_id)
+        assert claims["jti"] == str(tokens.refresh_id)
+
+    def test_rotating_inside_a_session_keeps_the_session(self):
+        """The replacement token has to belong to the same sign-in, or every
+        renewal would silently start a new device."""
+        user_id = uuid.uuid4()
+        first = issue_user_tokens(user_id, Role.FACULTY)
+        second = issue_user_tokens(user_id, Role.FACULTY, session_id=first.session_id)
+        assert second.session_id == first.session_id
+        assert second.refresh_id != first.refresh_id
+
+    def test_two_sign_ins_by_one_person_are_separate_sessions(self):
+        """Two machines, two sessions. Sharing one would mean ending either
+        ends both — the failure that sank the first attempt at rotation."""
+        user_id = uuid.uuid4()
+        assert issue_user_tokens(user_id, Role.FACULTY).session_id != issue_user_tokens(
+            user_id, Role.FACULTY
+        ).session_id
+
+    def test_an_access_token_carries_no_session(self):
+        """Access tokens are verified by signature alone and never looked up.
+        Putting a session handle on one would imply a revocation check that
+        deliberately does not happen."""
+        access = issue_user_tokens(uuid.uuid4(), Role.FACULTY).access_token
+        assert "sid" not in decode_token(access)
 
     def test_the_refresh_token_outlives_the_access_token(self):
         """Otherwise renewal expires before the thing it renews."""

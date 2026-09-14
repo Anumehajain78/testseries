@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "exam-window",
+  "description": "The examination window loads the candidate interface from a LAN server, so it is a remote origin. Tauri blocks IPC from remote origins outright unless the origin is listed here. The pattern is wide because the server address is configured per college at enrolment time and is not known when this file is compiled in; the exposure is bounded instead by the permission list, which grants exactly one command that takes one UUID.",
+  "windows": ["exam"],
+  "remote": {
+    "urls": ["http://*/*", "https://*/*"]
+  },
+  "permissions": []
+}

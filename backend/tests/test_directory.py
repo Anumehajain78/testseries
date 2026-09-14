@@ -148,6 +148,27 @@ class TestEditingACandidate:
         client.patch(f"{API}/students/{student_id}", json={"status": "ACTIVE"}, headers=admin)
         assert client.post(f"{API}/auth/login", json=credentials).status_code == 200
 
+    def test_blocking_a_candidate_stops_them_renewing(self, admin):
+        """A candidate blocked after signing in must not be able to hold the
+        door open with the refresh token they already have. Renewal reads the
+        account back from the database rather than trusting the token."""
+        created = client.post(f"{API}/students", json=_new(uuid.uuid4().hex[:5]), headers=admin).json()
+        signed_in = client.post(
+            f"{API}/auth/login",
+            json={
+                "email": created["student"]["email"],
+                "password": created["temporaryPassword"],
+            },
+        ).json()
+
+        client.patch(
+            f"{API}/students/{created['student']['id']}", json={"status": "BLOCKED"}, headers=admin
+        )
+        renewed = client.post(
+            f"{API}/auth/refresh", json={"refreshToken": signed_in["refreshToken"]}
+        )
+        assert renewed.status_code == 401
+
     def test_faculty_cannot_edit_the_register(self, admin, faculty):
         student = client.post(f"{API}/students", json=_new("F02"), headers=admin).json()
         response = client.patch(

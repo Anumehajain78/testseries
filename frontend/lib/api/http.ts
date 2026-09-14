@@ -1,3 +1,4 @@
+import { apiBaseUrl } from "./endpoint";
 import type { AnswerValue, AuditEvent, Computer, ExamSession, ExamState, Lab, Question, Result, Student, Test } from "@/lib/types";
 import { toConnection, toExamStatus, toSessionStatus } from "./contract";
 import type {
@@ -32,7 +33,8 @@ import type {
 // by a single environment variable in the meantime.
 // ---------------------------------------------------------------------------
 
-const BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1").replace(/\/$/, "");
+// Resolved per call rather than at module load: the page has to exist before
+// its own address can be read, and this module is imported during prerender.
 const TOKEN_KEY = "northbridge-access-token";
 const REFRESH_KEY = "northbridge-refresh-token";
 const USER_KEY = "northbridge-user";
@@ -122,7 +124,7 @@ async function renewAccess(): Promise<boolean> {
     const refreshToken = readRefreshToken();
     if (!refreshToken) return false;
     try {
-      const response = await fetch(`${BASE_URL}/auth/refresh`, {
+      const response = await fetch(`${apiBaseUrl()}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken }),
@@ -145,7 +147,7 @@ async function renewAccess(): Promise<boolean> {
 
 async function request<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const token = readToken();
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     headers: {
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
@@ -240,7 +242,7 @@ export function signOut(): void {
 }
 
 export async function signIn(email: string, password: string): Promise<TokenPairDto> {
-  const response = await fetch(`${BASE_URL}/auth/login`, {
+  const response = await fetch(`${apiBaseUrl()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),

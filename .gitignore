@@ -26,3 +26,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# Written by deploy/lan-server.sh on the machine it runs on.
+deploy/run/

@@ -276,19 +276,112 @@ class TestSessionRenewal:
         ).json()
         assert renewed["refreshToken"] != tokens["refreshToken"]
 
-    def test_the_previous_refresh_token_is_not_killed_on_use(self):
-        """Documenting a real limitation rather than implying otherwise.
-
-        Renewal hands out a new token but does not invalidate the old one, so a
-        captured token stays usable until it expires. Ending it on first use
-        needs the current token id stored per session; a single id per user
-        would sign someone out of one device whenever they used another.
-        """
+    def test_the_previous_refresh_token_is_dead_the_moment_it_is_used(self):
+        """The point of rotation. A refresh token copied off the wire is worth
+        one renewal at most, and nothing once the real client has renewed."""
         tokens = self._sign_in()
         first = client.post(f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
         assert first.status_code == 200
         again = client.post(f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]})
-        assert again.status_code == 200, "change this test when single-use rotation lands"
+        assert again.status_code == 401
+
+    def test_a_replay_does_not_end_the_session_it_was_taken_from(self):
+        """A deliberate departure from the usual advice.
+
+        Revoking the whole chain on a replay would let one duplicated request
+        on flaky lab wifi end a candidate's examination. The replayed token is
+        refused; the token the real client now holds keeps working.
+        """
+        tokens = self._sign_in()
+        current = client.post(
+            f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
+        ).json()["refreshToken"]
+        assert client.post(
+            f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
+        ).status_code == 401
+        assert client.post(f"{API}/auth/refresh", json={"refreshToken": current}).status_code == 200
+
+    def test_a_second_device_is_not_signed_out_by_the_first_one_renewing(self):
+        """Two sign-ins by one person are two independent sessions.
+
+        This is the requirement that sank the earlier attempt at rotation: with
+        one current token id per user, renewing on the lab machine invalidates
+        the token held by the same candidate's laptop.
+        """
+        laptop = self._sign_in()
+        lab_machine = self._sign_in()
+
+        renewed_laptop = client.post(
+            f"{API}/auth/refresh", json={"refreshToken": laptop["refreshToken"]}
+        )
+        assert renewed_laptop.status_code == 200
+
+        still_valid = client.post(
+            f"{API}/auth/refresh", json={"refreshToken": lab_machine["refreshToken"]}
+        )
+        assert still_valid.status_code == 200, "renewing one device signed the other out"
+
+    def test_signing_out_ends_that_session_and_only_that_session(self):
+        laptop = self._sign_in()
+        lab_machine = self._sign_in()
+
+        assert client.post(
+            f"{API}/auth/logout", json={"refreshToken": lab_machine["refreshToken"]}
+        ).status_code == 204
+        assert client.post(
+            f"{API}/auth/refresh", json={"refreshToken": lab_machine["refreshToken"]}
+        ).status_code == 401
+        assert client.post(
+            f"{API}/auth/refresh", json={"refreshToken": laptop["refreshToken"]}
+        ).status_code == 200
+
+    def test_signing_out_ends_the_session_not_just_the_token_presented(self):
+        """Otherwise a token rotated away a second before sign-out would
+        survive it — the newest token in the chain is the live one."""
+        tokens = self._sign_in()
+        latest = client.post(
+            f"{API}/auth/refresh", json={"refreshToken": tokens["refreshToken"]}
+        ).json()["refreshToken"]
+
+        assert client.post(f"{API}/auth/logout", json={"refreshToken": latest}).status_code == 204
+        assert client.post(f"{API}/auth/refresh", json={"refreshToken": latest}).status_code == 401
+
+    def test_signing_in_sweeps_out_dead_refresh_rows(self):
+        """Rotation writes a row per renewal, so something has to remove them.
+
+        An expired row can never be matched again — an expired token fails on
+        its signature long before the row is read — so sign-in, the only thing
+        that adds rows, is what clears them.
+        """
+        from datetime import timedelta
+
+        from app.db.models import RefreshToken
+        from app.db.session import SessionLocal
+        from app.utils.clock import utcnow
+
+        signed_in = self._sign_in()
+        dead = uuid.uuid4()
+        with SessionLocal() as db:
+            db.add(
+                RefreshToken(
+                    id=dead,
+                    user_id=uuid.UUID(signed_in["user"]["id"]),
+                    session_id=uuid.uuid4(),
+                    expires_at=utcnow() - timedelta(hours=1),
+                )
+            )
+            db.commit()
+
+        self._sign_in()
+
+        with SessionLocal() as db:
+            assert db.get(RefreshToken, dead) is None
+
+    def test_signing_out_without_a_token_still_succeeds(self):
+        """A client that has already thrown its tokens away must not be left
+        stuck on a screen it is trying to leave."""
+        assert client.post(f"{API}/auth/logout").status_code == 204
+        assert client.post(f"{API}/auth/logout", json={"refreshToken": "nonsense"}).status_code == 204
 
     def test_renewal_returns_the_same_person(self):
         tokens = self._sign_in()
@@ -308,13 +401,15 @@ class TestSessionRenewal:
     def test_a_garbage_refresh_token_is_refused(self):
         assert client.post(f"{API}/auth/refresh", json={"refreshToken": "nonsense"}).status_code == 401
 
-    def test_a_refresh_token_naming_a_deleted_account_is_refused(self):
-        """The database decides, not the token: a disabled account must not be
-        able to renew its way back in."""
+    def test_a_refresh_token_this_server_never_issued_is_refused(self):
+        """A correctly signed token is not enough. Renewal is a lookup, so a
+        token minted outside the sign-in path names a session that does not
+        exist — and one naming a deleted account never had a row to begin
+        with."""
         import uuid as _uuid
 
         from app.core.security import issue_user_tokens
 
-        _, refresh_token, _ = issue_user_tokens(_uuid.uuid4(), Role.FACULTY)
+        refresh_token = issue_user_tokens(_uuid.uuid4(), Role.FACULTY).refresh_token
         response = client.post(f"{API}/auth/refresh", json={"refreshToken": refresh_token})
         assert response.status_code == 401

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The local setup and unlock windows. These are pages we ship inside the binary, so they are the only ones trusted with the enrolment and unlock commands.",
+  "windows": ["setup", "unlock"],
+  "permissions": ["core:default", "global-shortcut:default", "log:default"]
+}

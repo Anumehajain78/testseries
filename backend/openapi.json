@@ -3539,10 +3539,38 @@
     },
     "/api/v1/auth/logout": {
       "post": {
+        "description": "End one sign-in.\n\nTakes the refresh token, because that is the thing that outlives the\nbrowser tab; the access token expires on its own within the half hour.\nOnly the presented session is ended \u2014 signing out of a lab machine must not\nsign the same candidate out of their own laptop.\n\nThe body is optional and a token that no longer verifies is not an error: a\nclient that has already discarded its tokens still gets its 204, because\nrefusing a sign-out leaves somebody stuck on a screen they are trying to\nleave, and answering differently for a genuine token would make this an\noracle for whether one was real.",
         "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Logout",
@@ -3663,7 +3691,7 @@
     },
     "/api/v1/auth/refresh": {
       "post": {
-        "description": "Exchange a refresh token for a fresh pair.\n\nThis exists so nobody is signed out during an examination. Access tokens\nare deliberately short-lived; without renewal an invigilator would be\nejected part-way through a ninety-minute paper, which is a worse failure\nthan the one short lifetimes are guarding against.\n\nEach renewal returns a *new* refresh token, and the client replaces the one\nit holds. The previous token is not invalidated, though: it stays valid\nuntil it expires on its own. Killing it on use needs server-side state \u2014\nthe current token id stored per session \u2014 and that is a separate change,\nbecause a single stored id per user would sign someone out of one device\nevery time they used another.\n\nSo this shortens exposure, it does not end it. A captured refresh token is\ngood until expiry.",
+        "description": "Exchange a refresh token for a fresh pair.\n\nThis exists so nobody is signed out during an examination. Access tokens\nare deliberately short-lived; without renewal an invigilator would be\nejected part-way through a ninety-minute paper, which is a worse failure\nthan the one short lifetimes are guarding against.\n\nRenewal is single-use. The presented token is consumed as the replacement\nis minted, so a copy taken off the wire is worth one renewal at most, and\nnothing at all once the real client has renewed. The replacement stays\ninside the same session id, which is why this does not sign the same person\nout of their other machine \u2014 the failure that sank the previous attempt.",
         "operationId": "refreshToken",
         "requestBody": {
           "content": {

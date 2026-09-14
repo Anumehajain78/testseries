@@ -1,13 +1,20 @@
 """Authentication, directory, and audit endpoints."""
 
-from uuid import UUID
+from datetime import datetime
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from app.api.deps import Admin, CurrentPrincipal, DbSession, Staff
-from app.core.security import TokenError, decode_token, issue_user_tokens, verify_secret
-from app.db.models import Student, User
+from app.core.security import (
+    REFRESH,
+    TokenError,
+    decode_token,
+    issue_user_tokens,
+    verify_secret,
+)
+from app.db.models import RefreshToken, Student, User
 from app.services import directory, machines, queries
 from app.utils.clock import utcnow
 from app.schemas.audit import AuditEventOut
@@ -60,9 +67,13 @@ def login(payload: LoginRequest, db: DbSession) -> TokenPair:
 
     now = utcnow()
     user.last_login_at = now
+    # A brand new session id: this sign-in is a device of its own, and nothing
+    # done to it afterwards touches any other machine the same person is on.
+    pair = _tokens_for(db, user, session_id=uuid4(), now=now)
+    _prune_dead_refresh_tokens(db, now)
     db.commit()
 
-    return _tokens_for(db, user)
+    return pair
 
 
 @auth_router.post("/refresh", response_model=TokenPair, operation_id="refreshToken")
@@ -74,46 +85,109 @@ def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
     ejected part-way through a ninety-minute paper, which is a worse failure
     than the one short lifetimes are guarding against.
 
-    Each renewal returns a *new* refresh token, and the client replaces the one
-    it holds. The previous token is not invalidated, though: it stays valid
-    until it expires on its own. Killing it on use needs server-side state —
-    the current token id stored per session — and that is a separate change,
-    because a single stored id per user would sign someone out of one device
-    every time they used another.
-
-    So this shortens exposure, it does not end it. A captured refresh token is
-    good until expiry.
+    Renewal is single-use. The presented token is consumed as the replacement
+    is minted, so a copy taken off the wire is worth one renewal at most, and
+    nothing at all once the real client has renewed. The replacement stays
+    inside the same session id, which is why this does not sign the same person
+    out of their other machine — the failure that sank the previous attempt.
     """
-    try:
-        claims = decode_token(payload.refresh_token, expected_type="refresh")
-    except TokenError as exc:
-        # One message for expired, malformed and wrong-type alike.
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again") from exc
+    claims = _refresh_claims(payload.refresh_token)
+    now = utcnow()
 
-    try:
-        user = db.get(User, UUID(claims["sub"]))
-    except (ValueError, KeyError) as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again") from exc
+    # FOR UPDATE because two renewals arriving together must not both win. Read
+    # without the lock, each sees an unconsumed row and both are honoured,
+    # leaving one session with two live chains — exactly the state rotation is
+    # supposed to make impossible.
+    stored = db.get(RefreshToken, UUID(claims["jti"]), with_for_update=True)
 
+    # Unknown, replayed, and expired are one answer on purpose. Distinguishing
+    # them would tell whoever is holding a stolen token whether it was ever
+    # real and whether the owner has already used it.
+    if stored is None or stored.consumed_at is not None or stored.expires_at <= now:
+        raise _sign_in_again()
+
+    user = db.get(User, stored.user_id)
     # The database decides, not the token: an account deleted or disabled since
     # sign-in must not be able to renew its way back in.
     if user is None or not user.is_active:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again")
+        raise _sign_in_again()
 
-    return _tokens_for(db, user)
+    stored.consumed_at = now
+    # Deliberately *not* killing the rest of the session here. Revoking the
+    # whole chain on a replay is the usual advice, but the usual advice is not
+    # written for a room of candidates on flaky lab wifi: a client that retries
+    # a renewal it never saw the answer to would end its own examination. The
+    # replayed token is refused; the session it came from survives.
+    pair = _tokens_for(db, user, session_id=stored.session_id, now=now)
+    db.commit()
+
+    return pair
 
 
-def _tokens_for(db: DbSession, user: User) -> TokenPair:
-    """Build the pair returned by both sign-in and renewal."""
-    access, refresh_token, expires_at = issue_user_tokens(user.id, user.role)
+def _sign_in_again() -> HTTPException:
+    """One message for expired, malformed, replayed and wrong-type alike."""
+    return HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again")
+
+
+def _refresh_claims(token: str) -> dict:
+    """Claims of a structurally valid refresh token, or a 401.
+
+    Signature and type are checked before the database is touched, so an
+    attacker cannot make the server do lookups with made-up token ids.
+    """
+    try:
+        claims = decode_token(token, expected_type=REFRESH)
+    except TokenError as exc:
+        raise _sign_in_again() from exc
+    try:
+        UUID(claims["jti"])
+        UUID(claims["sid"])
+    except (KeyError, ValueError) as exc:
+        # No ``sid`` means a token minted before rotation existed. It cannot be
+        # tied to a session, so it cannot be rotated: sign in again.
+        raise _sign_in_again() from exc
+    return claims
+
+
+def _prune_dead_refresh_tokens(db: DbSession, now: datetime) -> None:
+    """Drop rows no presented token could ever match again.
+
+    An expired token fails on its signature long before its row is read, and a
+    consumed row is kept only so that a replay is recognisable — which stops
+    being worth anything once the token has expired anyway. Both go.
+
+    Run at sign-in because sign-in is the only operation that adds rows, so the
+    table cannot grow while nobody is signing in, and no scheduled job has to
+    exist for the cleanup to happen.
+    """
+    db.execute(delete(RefreshToken).where(RefreshToken.expires_at <= now))
+
+
+def _tokens_for(db: DbSession, user: User, *, session_id: UUID, now: datetime) -> TokenPair:
+    """Build the pair returned by both sign-in and renewal, recording the
+    refresh half so that presenting it later can end it.
+
+    The row is added, not committed: the caller decides what else belongs in
+    the same transaction, so a handed-out token and the record of it can never
+    disagree.
+    """
+    tokens = issue_user_tokens(user.id, user.role, session_id=session_id)
+    db.add(
+        RefreshToken(
+            id=tokens.refresh_id,
+            user_id=user.id,
+            session_id=tokens.session_id,
+            expires_at=tokens.refresh_expires_at,
+        )
+    )
     registration_no = db.scalar(
         select(Student.registration_no).where(Student.user_id == user.id)
     )
     return TokenPair(
-        access_token=access,
-        refresh_token=refresh_token,
-        expires_at=expires_at,
-        server_time=utcnow(),
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+        expires_at=tokens.expires_at,
+        server_time=now,
         user=UserOut(
             id=user.id,
             email=user.email,
@@ -125,7 +199,34 @@ def _tokens_for(db: DbSession, user: User) -> TokenPair:
 
 
 @auth_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, operation_id="logout")
-def logout() -> None:
+def logout(db: DbSession, payload: RefreshRequest | None = None) -> None:
+    """End one sign-in.
+
+    Takes the refresh token, because that is the thing that outlives the
+    browser tab; the access token expires on its own within the half hour.
+    Only the presented session is ended — signing out of a lab machine must not
+    sign the same candidate out of their own laptop.
+
+    The body is optional and a token that no longer verifies is not an error: a
+    client that has already discarded its tokens still gets its 204, because
+    refusing a sign-out leaves somebody stuck on a screen they are trying to
+    leave, and answering differently for a genuine token would make this an
+    oracle for whether one was real.
+    """
+    if payload is None:
+        return None
+    try:
+        claims = decode_token(payload.refresh_token, expected_type=REFRESH)
+        session_id = UUID(claims["sid"])
+    except (TokenError, KeyError, ValueError):
+        return None
+
+    db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.session_id == session_id, RefreshToken.consumed_at.is_(None))
+        .values(consumed_at=utcnow())
+    )
+    db.commit()
     return None
 
 

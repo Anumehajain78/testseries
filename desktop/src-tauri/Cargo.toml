@@ -1,0 +1,47 @@
+[package]
+name = "exam-lab-client"
+version = "0.1.0"
+description = "Locked-down examination browser for college computer laboratories"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+# Tauri 2 keeps the application in a library so the mobile entry points can
+# reach it. We only ship desktop, but breaking the convention makes every
+# upgrade of the tauri CLI a small argument, so it stays.
+name = "exam_lab_client_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# The `devtools` feature is deliberately absent. Tauri compiles the inspector
+# into debug builds on its own, so leaving the feature off means a release
+# binary has no devtools to open at all — a candidate cannot reach the DOM even
+# if they find the shortcut, because the code is not in the binary.
+tauri = { version = "2", features = [] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-log = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# rustls rather than the system OpenSSL: a lab image that is a year behind on
+# security updates should not decide whether the client can reach the server.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["time", "sync"] }
+uuid = { version = "1", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+url = "2"
+hostname = "0.4"
+log = "0.4"
+
+[profile.release]
+# An examination client that panics mid-paper should die loudly on the
+# workstation rather than unwind into a half-locked window that still covers
+# the screen but no longer reports anything.
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

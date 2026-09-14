@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Examination workstation setup</title>
+    <link rel="stylesheet" href="shell.css" />
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">Examination control</p>
+      <h1>Enrol this workstation</h1>
+      <p>
+        Performed once per machine, by an administrator. The enrolment token
+        comes from the laboratory's page in the admin console and expires after
+        twelve hours.
+      </p>
+    </header>
+
+    <div id="notice" class="note warn" hidden></div>
+    <div id="error" class="note error" hidden></div>
+
+    <form id="form">
+      <label>
+        <span>Examination server API</span>
+        <input
+          id="apiBaseUrl"
+          name="apiBaseUrl"
+          placeholder="http://10.0.4.12:8000/api/v1"
+          autocomplete="off"
+          required
+        />
+        <small>Include the <code>/api/v1</code> suffix. This is a LAN address, not localhost.</small>
+      </label>
+
+      <label>
+        <span>Candidate interface</span>
+        <input
+          id="candidateUrl"
+          name="candidateUrl"
+          placeholder="http://10.0.4.12:3000"
+          autocomplete="off"
+          required
+        />
+        <small>Where the web application is served from. The examination window opens this.</small>
+      </label>
+
+      <label>
+        <span>Machine identifier</span>
+        <input id="machineId" name="machineId" placeholder="LAB1-PC-01" autocomplete="off" required />
+        <small>
+          Must already appear on the laboratory floor plan — the server will not
+          create a machine it has never heard of.
+        </small>
+      </label>
+
+      <label>
+        <span>Hostname</span>
+        <input id="hostname" name="hostname" autocomplete="off" />
+        <small>Optional. Recorded against the machine so a technician can find it later.</small>
+      </label>
+
+      <label>
+        <span>Laboratory enrolment token</span>
+        <input
+          id="enrolmentToken"
+          name="enrolmentToken"
+          placeholder="ADV-xxxxxxxxxxxxxxxxxxxxxx"
+          autocomplete="off"
+          required
+        />
+        <small>Shown once when minted. Typed here and never stored on this machine.</small>
+      </label>
+
+      <div class="actions">
+        <button id="submit" type="submit">Enrol and begin</button>
+        <span id="status" class="note ok" hidden></span>
+      </div>
+    </form>
+
+    <script>
+      const invoke = window.__TAURI__.core.invoke;
+      const form = document.getElementById("form");
+      const error = document.getElementById("error");
+      const notice = document.getElementById("notice");
+      const status = document.getElementById("status");
+      const submit = document.getElementById("submit");
+
+      const show = (element, text) => {
+        element.textContent = text;
+        element.hidden = !text;
+      };
+
+      // Prefilled from whatever this machine already knew, so a re-enrolment
+      // after a credential was rejected is one field rather than five.
+      invoke("setup_state").then((state) => {
+        document.getElementById("apiBaseUrl").value = state.apiBaseUrl;
+        document.getElementById("candidateUrl").value = state.candidateUrl;
+        document.getElementById("machineId").value = state.machineId;
+        document.getElementById("hostname").value = state.hostname;
+        show(notice, state.notice || "");
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        show(error, "");
+        show(status, "Contacting the server…");
+        submit.disabled = true;
+
+        try {
+          await invoke("enrol", {
+            apiBaseUrl: document.getElementById("apiBaseUrl").value,
+            candidateUrl: document.getElementById("candidateUrl").value,
+            enrolmentToken: document.getElementById("enrolmentToken").value,
+            machineId: document.getElementById("machineId").value,
+            hostname: document.getElementById("hostname").value,
+          });
+          // The window is closed from the Rust side once the examination
+          // window is up, so there is nothing to do on success.
+          show(status, "Enrolled. Opening the examination window…");
+        } catch (failure) {
+          show(status, "");
+          show(error, String(failure));
+          submit.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

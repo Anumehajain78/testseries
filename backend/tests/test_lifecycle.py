@@ -257,7 +257,7 @@ class TestWriteGuards:
     def test_a_token_naming_a_deleted_account_is_refused(self, world):
         # A token outlives the row it names; it must stop working immediately,
         # not at expiry.
-        access, _, _ = issue_user_tokens(uuid.uuid4(), Role.FACULTY)
+        access = issue_user_tokens(uuid.uuid4(), Role.FACULTY).access_token
         response = client.get(f"{API}/exams", headers={"Authorization": f"Bearer {access}"})
         assert response.status_code == 401
 

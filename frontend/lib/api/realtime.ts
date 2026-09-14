@@ -1,3 +1,4 @@
+import { wsBaseUrl } from "./endpoint";
 import { readToken } from "./http";
 
 // ---------------------------------------------------------------------------
@@ -13,12 +14,10 @@ import { readToken } from "./http";
 // else: refetch.
 // ---------------------------------------------------------------------------
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
+
 
 function socketUrl(examId: string, token: string): string {
-  const http = BASE_URL.replace(/\/api\/v1\/?$/, "");
-  const ws = http.replace(/^http/, "ws");
-  return `${ws}/ws/exams/${examId}/monitor?token=${encodeURIComponent(token)}`;
+  return `${wsBaseUrl()}/ws/exams/${examId}/monitor?token=${encodeURIComponent(token)}`;
 }
 
 export interface MonitorSocketOptions {
