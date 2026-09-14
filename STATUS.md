@@ -64,6 +64,7 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | **Works** | **Export report.** Downloads the released marks as a spreadsheet. Withheld marks are left out rather than written as zero. |
 | **Works** | **Run health check.** Reads what each workstation last reported and says, lab by lab, how many are online, how many have gone quiet, and how many have never reported at all. No button on the screens is fake any more. |
 | **Works** | **Coding questions.** Candidates write a Python program; the server runs it against test cases and marks it a minute or so after they submit. Teachers set the examples candidates can see and the hidden cases they cannot. |
+| **Works** | **Fixing a wrong test case.** If a coding question's expected answer was wrong, a teacher can correct it after the exam and everyone is re-marked against the corrected version. It asks for a reason and puts it on the record, because it changes marks people may already have seen. |
 | **Works** | **Put it on the college network.** One command — `./deploy/lan-server.sh` — works out this machine's address, sets up its secrets, and starts everything so lab computers can reach it by typing that address. |
 
 **One thing to know about running it for real:** start the server with several
@@ -73,6 +74,8 @@ one worker, 200 candidates signing in together gave 104 sign-ins and 96
 failures; with eight, all 200 got in, the slowest in about three seconds.
 
 **One thing to know about running candidates' code:** this is the riskiest thing the system does, so the program runs shut inside a box with no network, no view of the server's files, and a limit on time and memory. It cannot reach the database, cannot read the password file, and cannot leave anything behind. If that box is not available on a machine, **no code runs at all** — the marks simply do not appear, rather than the program being run unprotected. Teachers can check on the Assessments screen whether a machine can run code.
+
+**One thing to know about fixing a test case:** it is the only change allowed to an exam once it has finished, and it is kept that narrow on purpose. You can correct the test cases of a coding question — not the question itself, not the marks, not who sat it. It only works after the exam is over, never while candidates are still answering. The old marks are wiped and worked out again from the corrected cases, so nobody is left holding a mark from an answer that turned out to be wrong. If the same question is used by another exam as well, it refuses and tells you — changing one exam's paper by fixing another's is exactly the kind of quiet damage this is meant to prevent.
 
 **One thing to know about marks for programs:** they arrive a minute or so after a candidate submits, not instantly. Running sixty programs takes time, and nobody should wait at a screen for it. Until then the paper says "awaiting marking", the same as a written answer waiting for a teacher.
 
