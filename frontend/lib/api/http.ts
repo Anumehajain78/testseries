@@ -1,8 +1,9 @@
 import { apiBaseUrl } from "./endpoint";
-import type { AnswerValue, AuditEvent, Computer, ExamSession, ExamState, Lab, Question, Result, Student, Test } from "@/lib/types";
+import type { AnswerValue, AuditEvent, CodingLanguage, CodingTestCase, Computer, ExamSession, ExamState, Lab, Question, Result, Student, Test } from "@/lib/types";
 import { toConnection, toExamStatus, toSessionStatus } from "./contract";
 import type {
   AuditEventDto,
+  CodingRunSummaryDto,
   ComputerDto,
   ExamDetailDto,
   ExamSummaryDto,
@@ -15,6 +16,7 @@ import type {
   SessionStateDto,
   SubmissionReceiptDto,
   ResultsPageDto,
+  RuntimeCapabilitiesDto,
   SessionRowDto,
   StudentDto,
   TokenPairDto,
@@ -214,6 +216,25 @@ export const directory = {
   importRoster: (csv: string) => post<ImportSummaryDto>("/students/import", { csv }),
 };
 
+/**
+ * Marking programs, and finding out whether this machine can.
+ *
+ * Separate from `marking` because the two are different jobs: that one is a
+ * person reading answers, this one is asking the server to run code.
+ *
+ * `capabilities` is what makes "not marked yet" and "will never be marked
+ * here" tellable apart. A console on a host without a sandbox shows a queue of
+ * pending programs that nothing will ever come and collect, and without this
+ * call there is no way for it to say so.
+ */
+export const coding = {
+  capabilities: () => request<RuntimeCapabilitiesDto>("/exams/runtime/capabilities"),
+  /** `force` re-marks answers that already have a mark — see the results
+   *  screen, which makes the caller say which of the two they meant. */
+  run: (examId: string, force: boolean) =>
+    post<CodingRunSummaryDto>(`/exams/${examId}/coding/run?force=${force}`),
+};
+
 export const marking = {
   list: (examId: string) => request<MarkingItemDto[]>(`/exams/${examId}/marking`),
   award: (examId: string, sessionId: string, questionId: string, marks: number) =>
@@ -318,11 +339,54 @@ const toTest = (exam: ExamSummaryDto, detail?: ExamDetailDto): Test => ({
   endsAt: exam.endsAt ?? undefined,
 });
 
+/**
+ * The coding half of a question, in the two shapes the server sends it.
+ *
+ * `QuestionOut` carries whole test cases; `StudentQuestionOut` sends only the
+ * visible ones and strips the expected output even from those. One parameter
+ * type covers both, and the fields a candidate never receives are exactly the
+ * optional ones — so on the machine they are sitting at there is no answer key
+ * to read, rather than one this layer is trusted to hide.
+ */
+interface CodingSource {
+  language?: string | null;
+  starterCode?: string | null;
+  tests?: ReadonlyArray<{ position: number; stdin: string; expectedStdout?: string; hidden?: boolean; weight?: number }>;
+}
+
+/**
+ * The wire types `language` as a free string, because the server can grow a
+ * second runner before this client learns its name. Anything unrecognised is
+ * dropped rather than guessed at: labelling an unknown runtime "Python 3" in a
+ * candidate's editor is worse than labelling it nothing.
+ */
+const toLanguage = (language: string | null | undefined): CodingLanguage | undefined =>
+  language === "python" ? "python" : undefined;
+
+/** The coding fields of a question, empty for the types that have none. */
+const codingPart = (question: CodingSource): Pick<Question, "language" | "starterCode" | "tests"> => ({
+  language: toLanguage(question.language),
+  starterCode: question.starterCode ?? null,
+  tests: question.tests?.map(
+    (test): CodingTestCase => ({
+      position: test.position,
+      stdin: test.stdin,
+      // Left undefined rather than defaulted: on a candidate's paper the
+      // expected output was never sent, and an empty string would read as
+      // "this program should print nothing", which is a different claim.
+      expectedStdout: test.expectedStdout,
+      hidden: test.hidden,
+      weight: test.weight,
+    }),
+  ),
+});
+
 const toQuestion = (question: NonNullable<ExamDetailDto["questions"]>[number]): Question => ({
   id: question.id,
   type: question.type,
   prompt: question.prompt,
   marks: question.marks,
+  ...codingPart(question),
   options: (question.options ?? []).map((option) => option.body),
   correctOption: (question.options ?? []).findIndex((option) => option.isCorrect) >= 0
     ? (question.options ?? []).findIndex((option) => option.isCorrect)
@@ -386,6 +450,10 @@ const toResults = (page: ResultsPageDto): Result[] =>
     // with a mark nobody has released.
     score: row.score ?? null,
     total: row.maxScore,
+    // Carried through rather than dropped: a paper with a program still in the
+    // runner's queue has a score, and it is not the one the candidate will end
+    // up with. The screens need to be able to tell those two apart.
+    pendingMarking: row.pendingMarking ?? 0,
     submittedAt: row.submittedAt,
     mode: row.mode === "AUTO" ? "automatic" : "manual",
   }));
@@ -609,12 +677,15 @@ async function loadCandidateState(): Promise<Partial<ExamState>> {
   const test: Test = {
     ...toTest(target),
     instructions: paper.instructions ?? [],
-    // StudentQuestionOut has no answer-key field, so nothing to strip.
+    // StudentQuestionOut has no answer-key field, so nothing to strip. That
+    // holds for coding too: the server sends only the visible test cases, and
+    // sends those without the output they are expected to produce.
     questions: (paper.questions ?? []).map((question) => ({
       id: question.id,
       type: question.type,
       prompt: question.prompt,
       marks: question.marks,
+      ...codingPart(question),
       options: (question.options ?? []).map((option) => option.body),
     })),
     config: {

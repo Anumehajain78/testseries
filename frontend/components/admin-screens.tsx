@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useExam } from "@/app/providers";
+import { ApiError, coding } from "@/lib/api";
 import { formatDate, formatDateTime, formatDuration, formatScore, formatTime, initials, percentage, statusLabel } from "@/lib/format";
-import type { AuditSeverity, Computer, ConnectionStatus, ExamSession, ExamState, ExamStatus, Lab, NewTestInput, QuestionType, Result, Student, StudentExamStatus, Test } from "@/lib/types";
+import type { AuditSeverity, AuthoredCodingTestCase, CodingLanguage, Computer, ConnectionStatus, ExamSession, ExamState, ExamStatus, Lab, NewTestInput, Question, QuestionType, Result, Student, StudentExamStatus, Test } from "@/lib/types";
 import { buildMonitorRows, computeLabOccupancy, filterAuditEvents, summarizeMonitorRows, type AuditFilter } from "@/lib/selectors";
 import { resultsFileName, resultsToCsv } from "@/lib/export";
 import { EXAM_STATUS_LABEL, examBadgeTone, examStatusTone } from "@/lib/status";
@@ -116,25 +117,50 @@ export function TestsScreen() {
   return <><PageHeader eyebrow="Assessment management" title="Assessments" description="Create, schedule, and supervise institutional examinations." actions={<ButtonLink href="/admin/tests/create" icon="plus">Create Test</ButtonLink>}/><div className="toolbar"><div className="tabs" role="group" aria-label="Filter assessments">{(["all","scheduled","live","completed","draft"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "All" : statusLabel(item)} <span>{item === "all" ? state.tests.length : state.tests.filter((t) => t.status === item).length}</span></button>)}</div></div><Card className="table-card">{tests.length ? <TestTable tests={tests} labs={state.labs}/> : <EmptyState title="No assessments in this view" description="Choose another status or create a new assessment." action={<ButtonLink href="/admin/tests/create" icon="plus">Create Test</ButtonLink>}/>}</Card></>;
 }
 
-// The three kinds of question the platform supports. The builder handles all
+// The four kinds of question the platform supports. The builder handles all
 // of them because it is also the editor: a form that only understood
 // multiple-choice would silently rewrite a written question as one when a
 // paper containing it was edited.
+//
+// Every question carries every type's fields, empty when they do not apply.
+// That is what lets someone try a coding question, switch to multiple choice
+// and switch back without losing the test cases they had already written.
+//
+// `expectsNoOutput` is builder state only and never leaves this form. The
+// server requires `expectedStdout` and takes an empty string at face value, so
+// "this program should print nothing" and "nobody has filled this in yet" are
+// the same bytes on the wire. This flag is how an author says which one they
+// meant; without it, a half-written question saves as one that awards full
+// marks to a program that prints nothing at all.
+type BuilderTestCase = AuthoredCodingTestCase & { expectsNoOutput: boolean };
 type CreateQuestion = {
   type: QuestionType;
   prompt: string;
   options: string[];
   correctOptions: number[];
   marks: number;
+  language: CodingLanguage;
+  starterCode: string;
+  tests: BuilderTestCase[];
 };
 const blankQuestion = (): CreateQuestion => ({
   type: "mcq", prompt: "", options: ["", "", "", ""], correctOptions: [0], marks: 2,
+  language: "python", starterCode: "", tests: [],
+});
+
+// The first case is the worked example the candidate is shown; everything after
+// it is hidden unless someone deliberately reveals it. A paper whose every case
+// is visible tells a candidate exactly what their program will be judged on,
+// and that default should never be reached by accident.
+const blankTest = (index: number): BuilderTestCase => ({
+  stdin: "", expectedStdout: "", hidden: index > 0, weight: 1, expectsNoOutput: false,
 });
 
 const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
   mcq: "One correct answer",
   multiple: "Several correct answers",
   text: "Written answer",
+  coding: "Python program",
 };
 
 // Split an ISO timestamp into the date and time inputs the form uses.
@@ -191,11 +217,27 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
       ? existing.questions.map((question) => ({
           type: question.type,
           prompt: question.prompt,
-          options: question.type === "text" ? [] : [...question.options],
+          options: question.type === "text" || question.type === "coding" ? [] : [...question.options],
           correctOptions: question.type === "multiple"
             ? (question.correctOptions ?? [])
             : [question.correctOption ?? 0],
           marks: question.marks,
+          language: question.language ?? "python",
+          starterCode: question.starterCode ?? "",
+          // The editor reads back the faculty shape, which carries the expected
+          // output and the hidden flag. Defaulting them here would quietly
+          // publish a hidden case or blank an answer key on the next save, so
+          // the fallbacks are the safe reading in each direction: no expected
+          // output yet, and hidden until someone says otherwise.
+          tests: (question.tests ?? []).map((test) => ({
+            stdin: test.stdin,
+            expectedStdout: test.expectedStdout ?? "",
+            hidden: test.hidden ?? true,
+            weight: test.weight ?? 1,
+            // It saved once, so it passed this form's check once: an empty
+            // expected output on a stored question is the deliberate kind.
+            expectsNoOutput: (test.expectedStdout ?? "") === "",
+          })),
         }))
       : [blankQuestion()],
   );
@@ -206,13 +248,26 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
 
   // Switching type has to reshape the answer with it: a written question has
   // no choices, and a one-answer question cannot keep several marked correct.
+  //
+  // A coding question has no choices either, but it does need somewhere to put
+  // an answer key, so it opens with one test case rather than an empty list —
+  // a coding question with no cases can never be scored at all.
   const changeQuestionType = (index: number, type: QuestionType) => setQuestions((old) => old.map((q, i) => {
     if (i !== index) return q;
+    if (type === "coding") return { ...q, type, options: [], correctOptions: [], tests: q.tests.length ? q.tests : [blankTest(0)] };
     if (type === "text") return { ...q, type, options: [], correctOptions: [] };
     const options = q.options.length ? q.options : ["", "", "", ""];
     const correct = type === "mcq" ? q.correctOptions.slice(0, 1) : q.correctOptions;
     return { ...q, type, options, correctOptions: correct.length ? correct : [0] };
   }));
+
+  // The order of this list is the order the cases run in, so these three keep
+  // it intact rather than reordering around the edit.
+  const updateTestCase = (index: number, testIndex: number, patch: Partial<BuilderTestCase>) =>
+    updateQuestion(index, { tests: questions[index].tests.map((test, i) => (i === testIndex ? { ...test, ...patch } : test)) });
+  const addTestCase = (index: number) => updateQuestion(index, { tests: [...questions[index].tests, blankTest(questions[index].tests.length)] });
+  const removeTestCase = (index: number, testIndex: number) =>
+    updateQuestion(index, { tests: questions[index].tests.filter((_, i) => i !== testIndex) });
 
   const toggleCorrect = (index: number, optionIndex: number) => setQuestions((old) => old.map((q, i) => {
     if (i !== index) return q;
@@ -239,7 +294,19 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
     assignedStudentIds: selectedStudents,
     instructions: instructions.split("\n").map((line) => line.trim()).filter(Boolean),
     config: { questionsPerStudent: Number(questionsPerStudent) || 0, randomizeQuestions, randomizeOptions, allowNavigation, autoSubmitOnExpiry },
-    questions,
+    // The runner configuration travels only with the type that uses it. A
+    // multiple-choice question that arrived carrying an empty `tests` array
+    // would be asking the server to score it against nothing.
+    questions: questions.map(({ language, starterCode, tests, ...question }) => (
+      question.type === "coding"
+        ? {
+            ...question,
+            language,
+            starterCode: starterCode.length ? starterCode : null,
+            tests: tests.map(({ expectsNoOutput, ...test }) => ({ ...test, expectedStdout: expectsNoOutput ? "" : test.expectedStdout })),
+          }
+        : question
+    )),
   });
 
   // Validate required Basic Information and Schedule fields (Req 4.10).
@@ -258,6 +325,18 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
     questions.forEach((q, i) => {
       if (!q.prompt.trim()) { next[`q${i}`] = "Write the question."; return; }
       if (q.type === "text") return;  // written answers have no options
+      if (q.type === "coding") {
+        // The test cases are the answer key. A coding question saved without
+        // one, or with a case that expects nothing in particular, is a question
+        // the runner will happily award full marks for any program at all.
+        if (!q.tests.length) next[`q${i}`] = "Add at least one test case — the tests are how this question is marked.";
+        // Whitespace-only counts as empty because the runner normalises it
+        // away before comparing — so it would pass every program that printed
+        // nothing, which is exactly the trap the flag exists to make explicit.
+        else if (q.tests.some((test) => !test.expectsNoOutput && !test.expectedStdout.trim())) next[`q${i}`] = "Give every test case the output it should produce, or tick that it expects none.";
+        else if (q.tests.some((test) => !(Number(test.weight) > 0))) next[`q${i}`] = "Every test case needs a weight above zero.";
+        return;
+      }
       if (q.options.length < 2 || q.options.some((o) => !o.trim())) {
         next[`q${i}`] = "Fill in every answer choice.";
       } else if (!q.correctOptions.length) {
@@ -369,7 +448,38 @@ export function CreateTestScreen({ examId }: { examId?: string } = {}) {
 
     <Card>
       <div className="form-section-heading"><span>06</span><div><h2>Questions</h2><p>Add objective questions, answer choices, and the correct response.</p></div></div>
-      <div className="question-builder">{questions.map((q, index) => <fieldset key={index} className="builder-item"><legend>Question {index + 1}</legend><label className="field"><span>Question prompt</span><textarea value={q.prompt} onChange={(e) => updateQuestion(index, { prompt: e.target.value })} placeholder="Enter a clear, unambiguous question"/></label><Select label="Answer type" value={q.type} onChange={(e) => changeQuestionType(index, e.target.value as QuestionType)}>{(["mcq","multiple","text"] as const).map((t) => <option key={t} value={t}>{QUESTION_TYPE_LABEL[t]}</option>)}</Select>{q.type === "text" ? <p className="field-hint">Written answers are marked by hand after the exam.</p> : <><p className="field-hint">{q.type === "multiple" ? "Tick every choice that is correct." : "Tick the one correct choice."}</p><div className="option-builder">{q.options.map((option, optionIndex) => <label key={optionIndex} className="builder-option"><input type={q.type === "multiple" ? "checkbox" : "radio"} name={`correct-${index}`} checked={q.correctOptions.includes(optionIndex)} onChange={() => toggleCorrect(index, optionIndex)} aria-label={`Option ${String.fromCharCode(65 + optionIndex)} is correct`}/><input aria-label={`Option ${optionIndex + 1}`} value={option} onChange={(e) => updateQuestion(index, { options: q.options.map((old, i) => i === optionIndex ? e.target.value : old) })} placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}/></label>)}</div></>}<Field label="Marks" type="number" min={1} value={q.marks} onChange={(e) => updateQuestion(index, { marks: Number(e.target.value) })}/>{errors[`q${index}`] && <p className="field-error">{errors[`q${index}`]}</p>}{questions.length > 1 && <Button type="button" tone="ghost" onClick={() => setQuestions((old) => old.filter((_, i) => i !== index))}>Remove question</Button>}</fieldset>)}</div>
+      <div className="question-builder">{questions.map((q, index) => { const hiddenTests = q.tests.filter((test) => test.hidden).length; return <fieldset key={index} className="builder-item"><legend>Question {index + 1}</legend>
+        <label className="field"><span>Question prompt</span><textarea value={q.prompt} onChange={(e) => updateQuestion(index, { prompt: e.target.value })} placeholder="Enter a clear, unambiguous question"/></label>
+        <Select label="Answer type" value={q.type} onChange={(e) => changeQuestionType(index, e.target.value as QuestionType)}>{(["mcq","multiple","text","coding"] as const).map((t) => <option key={t} value={t}>{QUESTION_TYPE_LABEL[t]}</option>)}</Select>
+        {q.type === "coding" ? <div className="coding-builder">
+          <p className="field-hint">Marked by running the program, not by hand.</p>
+          {/* One runner exists, so the control has one option. It is still on the
+              form because a paper should say which language it was written for
+              rather than leave a reader to infer it from the prompt. */}
+          <div className="form-grid"><Select label="Language" value={q.language} onChange={(e) => updateQuestion(index, { language: e.target.value as CodingLanguage })}><option value="python">Python 3</option></Select></div>
+          <label className="field" style={{ marginTop: 18 }}><span>Starter code</span><textarea className="code-input" value={q.starterCode} onChange={(e) => updateQuestion(index, { starterCode: e.target.value })} spellCheck={false} placeholder={"# Read from standard input and print the answer.\ndata = input()\n"}/><small>Pre-filled in the candidate&rsquo;s editor. Leave it empty to start them on a blank file.</small></label>
+          <div className="test-builder-head">
+            <div><strong>Test cases</strong><small>Each case feeds one input to the program and compares what it prints. A hidden case is the answer key; a visible one is printed on the paper as a worked example &mdash; its input only, never the output it should produce.</small></div>
+            {/* Said as a count rather than a colour alone, because a paper with
+                nothing hidden is one a candidate can see the whole shape of. */}
+            <Badge tone={q.tests.length && hiddenTests ? "success" : "warning"}>{hiddenTests} of {q.tests.length} hidden</Badge>
+          </div>
+          <div className="test-builder">{q.tests.map((test, testIndex) => <div key={testIndex} className={`test-case ${test.hidden ? "is-hidden" : "is-visible"}`}>
+            <div className="test-case-head"><strong>Test {testIndex + 1}</strong><Badge tone={test.hidden ? "neutral" : "info"}>{test.hidden ? "Hidden" : "Shown to candidates"}</Badge></div>
+            <div className="test-case-io">
+              <label className="field"><span>Input on stdin</span><textarea className="code-input" value={test.stdin} onChange={(e) => updateTestCase(index, testIndex, { stdin: e.target.value })} spellCheck={false} placeholder={"4\n1 2 3 4"}/></label>
+              <label className="field"><span>Expected output on stdout</span><textarea className="code-input" value={test.expectsNoOutput ? "" : test.expectedStdout} onChange={(e) => updateTestCase(index, testIndex, { expectedStdout: e.target.value })} disabled={test.expectsNoOutput} spellCheck={false} placeholder="10"/><label className="expects-nothing"><input type="checkbox" checked={test.expectsNoOutput} onChange={(e) => updateTestCase(index, testIndex, { expectsNoOutput: e.target.checked, expectedStdout: e.target.checked ? "" : test.expectedStdout })}/><span>This case expects no output at all</span></label></label>
+            </div>
+            <div className="test-case-foot">
+              <label className="toggle-option"><input type="checkbox" checked={test.hidden} onChange={(e) => updateTestCase(index, testIndex, { hidden: e.target.checked })}/><span><strong>Hide from candidates</strong><small>{test.hidden ? "Neither this input nor its output reaches the paper." : "This input is printed on the paper as a sample."}</small></span></label>
+              <Field label="Weight" type="number" min={1} value={test.weight} onChange={(e) => updateTestCase(index, testIndex, { weight: Number(e.target.value) })} hint="Share of the marks"/>
+              {q.tests.length > 1 && <Button type="button" tone="ghost" onClick={() => removeTestCase(index, testIndex)}>Remove test</Button>}
+            </div>
+          </div>)}</div>
+          <Button type="button" tone="secondary" icon="plus" onClick={() => addTestCase(index)}>Add test case</Button>
+        </div> : q.type === "text" ? <p className="field-hint">Written answers are marked by hand after the exam.</p> : <><p className="field-hint">{q.type === "multiple" ? "Tick every choice that is correct." : "Tick the one correct choice."}</p><div className="option-builder">{q.options.map((option, optionIndex) => <label key={optionIndex} className="builder-option"><input type={q.type === "multiple" ? "checkbox" : "radio"} name={`correct-${index}`} checked={q.correctOptions.includes(optionIndex)} onChange={() => toggleCorrect(index, optionIndex)} aria-label={`Option ${String.fromCharCode(65 + optionIndex)} is correct`}/><input aria-label={`Option ${optionIndex + 1}`} value={option} onChange={(e) => updateQuestion(index, { options: q.options.map((old, i) => i === optionIndex ? e.target.value : old) })} placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}/></label>)}</div></>}
+        <Field label="Marks" type="number" min={1} value={q.marks} onChange={(e) => updateQuestion(index, { marks: Number(e.target.value) })}/>{errors[`q${index}`] && <p className="field-error">{errors[`q${index}`]}</p>}{questions.length > 1 && <Button type="button" tone="ghost" onClick={() => setQuestions((old) => old.filter((_, i) => i !== index))}>Remove question</Button>}
+      </fieldset>; })}</div>
       <Button type="button" tone="secondary" icon="plus" onClick={() => setQuestions((old) => [...old, blankQuestion()])}>Add another question</Button>
     </Card>
 
@@ -415,6 +525,20 @@ function buildRosterRows(test: Test, sessions: ExamSession[], computers: Compute
   });
 }
 
+// The paper preview has to describe each question in its own terms. It used to
+// print an option count for every one of them, which told a reader looking at a
+// coding question "0 options" — nothing at all about whether the test cases
+// that actually mark it had been written, or how many a candidate would see.
+function questionShape(question: Question): string {
+  if (question.type === "coding") {
+    const tests = question.tests ?? [];
+    const hidden = tests.filter((test) => test.hidden).length;
+    return `${tests.length} test ${tests.length === 1 ? "case" : "cases"}, ${hidden} hidden`;
+  }
+  if (question.type === "text") return "written answer";
+  return `${question.options.length} options`;
+}
+
 interface DetailRosterRow {
   studentId: string;
   name: string;
@@ -444,7 +568,10 @@ export function TestDetailScreen() {
       setConfirm(false);
     }
   };
-  return <><div className="breadcrumb"><Link href="/admin/tests">Assessments</Link><Icon name="chevron" size={14}/><span>{test.code}</span></div><PageHeader title={test.title} description={`${test.course} · ${test.department}`} actions={<>{test.status === "draft" && <><ButtonLink href={`/admin/tests/${test.id}/edit`} tone="secondary" icon="file">Edit test</ButtonLink><Button icon="calendar" onClick={() => { scheduleExam(test.id).catch(() => {}); }}>Schedule assessment</Button></>}{test.status === "scheduled" && <><Button icon="send" onClick={() => setConfirm(true)}>Start examination</Button><ButtonLink href={`/admin/tests/${test.id}/monitor`} tone="ghost" icon="monitor">Monitor exam</ButtonLink></>}{test.status === "live" && <ButtonLink href={`/admin/tests/${test.id}/monitor`} icon="monitor">Open live monitor</ButtonLink>}{test.status === "completed" && test.questions.some((q) => q.type === "text") && <ButtonLink href={`/admin/tests/${test.id}/marking`} icon="file">Mark written answers</ButtonLink>}</>}/><div className="detail-grid"><div className="detail-main"><Card className="detail-hero"><div><Badge tone={examBadgeTone(test.status)}>{statusLabel(test.status)}</Badge><span className="exam-code">{test.code}</span></div><div className="detail-facts"><div><Icon name="calendar"/><span><small>Start time</small><strong>{formatDateTime(test.scheduledAt)}</strong></span></div><div><Icon name="clock"/><span><small>Duration</small><strong>{test.durationMinutes} minutes</strong></span></div><div><Icon name="users"/><span><small>Students</small><strong>{test.assignedStudentIds.length} assigned</strong></span></div><div><Icon name="monitor"/><span><small>Lab</small><strong>{lab?.name ?? "Unassigned"}</strong></span></div><div><Icon name="file"/><span><small>Questions / marks</small><strong>{test.questions.length} / {test.totalMarks}</strong></span></div></div></Card><Card className="table-card"><div className="section-heading"><div><p className="eyebrow">Candidate roster</p><h2>Assigned students</h2></div><Badge tone="info">{roster.length} students</Badge></div>{roster.length ? <TableShell caption="Assigned candidates"><thead><tr><th>Roll number</th><th>Student</th><th>Computer</th><th>Connection</th><th>Exam status</th></tr></thead><tbody>{roster.map((row) => <tr key={row.studentId}><td>{row.registrationNo}</td><td className="table-title">{row.name}</td><td>{row.computerId}</td><td><StatusDot status={row.connection}/></td><td><Badge tone={examStatusTone(row.examStatus)}>{EXAM_STATUS_LABEL[row.examStatus]}</Badge></td></tr>)}</tbody></TableShell> : <EmptyState title="No students assigned" description="Edit the assessment to assign candidates before starting."/>}</Card><Card><div className="section-heading"><div><p className="eyebrow">Paper preview</p><h2>Questions</h2></div><Badge>{test.totalMarks} marks</Badge></div><ol className="preview-list">{test.questions.map((q) => <li key={q.id}><span>{q.prompt}</span><small>{q.marks} marks · {q.options.length} options</small></li>)}</ol></Card></div><aside className="detail-side"><Card><h2>Launch readiness</h2><div className="check-list"><p><Icon name="check"/> Question paper validated</p><p><Icon name="check"/> Candidate roster assigned</p><p><Icon name="check"/> {lab?.available} devices available</p><p className={lab?.status === "maintenance" ? "not-ready" : ""}><Icon name={lab?.status === "maintenance" ? "alert" : "check"}/> Lab environment {lab?.status}</p></div></Card><Card><h2>Instructions</h2><ul className="instruction-list">{test.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}</ul></Card></aside></div><Modal open={confirm} onClose={() => setConfirm(false)} title="Start this examination now?" description="This begins the examination for all connected students, opens the student entry gate, and starts the shared countdown. This action should only be taken when invigilators are ready." actions={<><Button tone="secondary" onClick={() => setConfirm(false)}>Cancel</Button><Button icon="send" onClick={launch}>Confirm & start</Button></>}><div className="launch-summary"><strong>{test.title}</strong><span>{test.assignedStudentIds.length} assigned students · {test.durationMinutes} minutes · {test.questions.length} questions · {lab?.name}</span></div></Modal></>;
+  return <><div className="breadcrumb"><Link href="/admin/tests">Assessments</Link><Icon name="chevron" size={14}/><span>{test.code}</span></div><PageHeader title={test.title} description={`${test.course} · ${test.department}`} actions={<>{test.status === "draft" && <><ButtonLink href={`/admin/tests/${test.id}/edit`} tone="secondary" icon="file">Edit test</ButtonLink><Button icon="calendar" onClick={() => { scheduleExam(test.id).catch(() => {}); }}>Schedule assessment</Button></>}{test.status === "scheduled" && <><Button icon="send" onClick={() => setConfirm(true)}>Start examination</Button><ButtonLink href={`/admin/tests/${test.id}/monitor`} tone="ghost" icon="monitor">Monitor exam</ButtonLink></>}{test.status === "live" && <ButtonLink href={`/admin/tests/${test.id}/monitor`} icon="monitor">Open live monitor</ButtonLink>}{/* Written answers only. A program is marked by the runner, so there is
+    nothing for a person to do with one here; how far the runner has got is
+    on the results screen, where an unfinished total actually matters. */}
+{test.status === "completed" && test.questions.some((q) => q.type === "text") && <ButtonLink href={`/admin/tests/${test.id}/marking`} icon="file">Mark written answers</ButtonLink>}</>}/><div className="detail-grid"><div className="detail-main"><Card className="detail-hero"><div><Badge tone={examBadgeTone(test.status)}>{statusLabel(test.status)}</Badge><span className="exam-code">{test.code}</span></div><div className="detail-facts"><div><Icon name="calendar"/><span><small>Start time</small><strong>{formatDateTime(test.scheduledAt)}</strong></span></div><div><Icon name="clock"/><span><small>Duration</small><strong>{test.durationMinutes} minutes</strong></span></div><div><Icon name="users"/><span><small>Students</small><strong>{test.assignedStudentIds.length} assigned</strong></span></div><div><Icon name="monitor"/><span><small>Lab</small><strong>{lab?.name ?? "Unassigned"}</strong></span></div><div><Icon name="file"/><span><small>Questions / marks</small><strong>{test.questions.length} / {test.totalMarks}</strong></span></div></div></Card><Card className="table-card"><div className="section-heading"><div><p className="eyebrow">Candidate roster</p><h2>Assigned students</h2></div><Badge tone="info">{roster.length} students</Badge></div>{roster.length ? <TableShell caption="Assigned candidates"><thead><tr><th>Roll number</th><th>Student</th><th>Computer</th><th>Connection</th><th>Exam status</th></tr></thead><tbody>{roster.map((row) => <tr key={row.studentId}><td>{row.registrationNo}</td><td className="table-title">{row.name}</td><td>{row.computerId}</td><td><StatusDot status={row.connection}/></td><td><Badge tone={examStatusTone(row.examStatus)}>{EXAM_STATUS_LABEL[row.examStatus]}</Badge></td></tr>)}</tbody></TableShell> : <EmptyState title="No students assigned" description="Edit the assessment to assign candidates before starting."/>}</Card><Card><div className="section-heading"><div><p className="eyebrow">Paper preview</p><h2>Questions</h2></div><Badge>{test.totalMarks} marks</Badge></div><ol className="preview-list">{test.questions.map((q) => <li key={q.id}><span>{q.prompt}</span><small>{q.marks} marks · {questionShape(q)}</small></li>)}</ol></Card></div><aside className="detail-side"><Card><h2>Launch readiness</h2><div className="check-list"><p><Icon name="check"/> Question paper validated</p><p><Icon name="check"/> Candidate roster assigned</p><p><Icon name="check"/> {lab?.available} devices available</p><p className={lab?.status === "maintenance" ? "not-ready" : ""}><Icon name={lab?.status === "maintenance" ? "alert" : "check"}/> Lab environment {lab?.status}</p></div></Card><Card><h2>Instructions</h2><ul className="instruction-list">{test.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}</ul></Card></aside></div><Modal open={confirm} onClose={() => setConfirm(false)} title="Start this examination now?" description="This begins the examination for all connected students, opens the student entry gate, and starts the shared countdown. This action should only be taken when invigilators are ready." actions={<><Button tone="secondary" onClick={() => setConfirm(false)}>Cancel</Button><Button icon="send" onClick={launch}>Confirm & start</Button></>}><div className="launch-summary"><strong>{test.title}</strong><span>{test.assignedStudentIds.length} assigned students · {test.durationMinutes} minutes · {test.questions.length} questions · {lab?.name}</span></div></Modal></>;
 }
 
 // Derive the academic branch and year shown in the students table (Req 8.1).
@@ -564,8 +691,107 @@ function exportResults(
 // hand out marks for a paper still being read.
 // ---------------------------------------------------------------------------
 
+/**
+ * Marking the programs on one assessment, and saying when nothing ever will.
+ *
+ * Two runs rather than one button, because they are different acts. The plain
+ * run marks what has never been marked — idempotent, and the same thing the
+ * server does by itself within a minute of a submission. The forced run
+ * re-marks the whole cohort, which is how a broken test case gets repaired,
+ * and it overwrites marks candidates may already have been shown. Only one of
+ * those should be reachable without stopping to think about it.
+ *
+ * The capability check is what separates "not marked yet" from "will never be
+ * marked here". Without it a console on a host with no sandbox shows a queue
+ * of pending programs that nothing is ever coming to collect, and looks
+ * exactly like one that is simply busy.
+ */
+function CodingRunPanel({ exam, pending, onRan }: { exam: Test; pending: number; onRan: () => void }) {
+  // Null until the server has answered. Neither claim is safe to make before
+  // then, so the panel says nothing about the sandbox rather than guessing.
+  const [sandbox, setSandbox] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState<"pending" | "all" | null>(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    coding
+      .capabilities()
+      .then((capabilities) => { if (!cancelled) setSandbox(capabilities.codingSandbox); })
+      // A console that cannot ask still works; it simply does not get to warn
+      // anybody, which is the state it was in before this call existed.
+      .catch(() => { if (!cancelled) setSandbox(null); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const run = async (force: boolean) => {
+    setBusy(force ? "all" : "pending");
+    setOutcome(null);
+    setProblem(null);
+    try {
+      const summary = await coding.run(exam.id, force);
+      // Both numbers are reported. "0 marked, 30 skipped" is an assessment
+      // that was already finished; "0 marked, 0 skipped" is one where nothing
+      // has been submitted — the same headline meaning opposite things.
+      setOutcome(summary.graded || summary.skipped
+        ? `Marked ${summary.graded} ${summary.graded === 1 ? "program" : "programs"}. ${summary.skipped} already had marks and ${force ? "were re-marked" : "were left alone"}.`
+        : "There were no submitted programs to mark.");
+      // The run changed awards, so the totals this screen ranks by have moved.
+      onRan();
+    } catch (cause) {
+      // A 503 here is the machine, not the request. Saying "marking failed"
+      // would send a faculty member hunting for a bad test case when the truth
+      // is that this host cannot run candidate code at all.
+      setProblem(cause instanceof ApiError && cause.status === 503
+        ? "This machine cannot run candidate code, so no marks were changed. The programs stay unmarked until the exam server runs on a host with the sandbox enabled."
+        : "The run did not start, and nothing was marked. Try again, or check that the exam server is reachable.");
+      if (cause instanceof ApiError && cause.status === 503) setSandbox(false);
+    } finally {
+      setBusy(null);
+      setConfirming(false);
+    }
+  };
+
+  return <Card className="coding-panel">
+    <div className="section-heading">
+      <div><p className="eyebrow">Programs</p><h2>Code marking</h2></div>
+      {sandbox === false
+        ? <Badge tone="danger">Sandbox unavailable</Badge>
+        : pending > 0 ? <Badge tone="warning">{pending} {pending === 1 ? "paper" : "papers"} pending</Badge> : <Badge tone="success">Nothing pending</Badge>}
+    </div>
+    <div className="coding-panel-body">
+      {sandbox === false
+        ? <p className="coding-panel-note is-blocked"><Icon name="alert" size={17}/><span><strong>This machine cannot run candidate code.</strong> Coding answers on this assessment will never be marked here, however long they are left. They are waiting on a server with the sandbox enabled, not on the queue.</span></p>
+        : <p className="coding-panel-note"><Icon name="code" size={17}/><span>Programs are marked by running them against this question&rsquo;s test cases, within about a minute of a candidate submitting. Run them now if you would rather not wait, or re-mark everyone after correcting a test case that was wrong.</span></p>}
+      {outcome && <p className="coding-panel-result" role="status"><Icon name="check" size={16}/> {outcome}</p>}
+      {problem && <p className="coding-panel-result is-problem" role="alert"><Icon name="alert" size={16}/> {problem}</p>}
+      <div className="coding-panel-actions">
+        <Button type="button" tone="secondary" icon="reset" disabled={busy !== null || sandbox === false} onClick={() => run(false)}>
+          {busy === "pending" ? "Running…" : "Mark pending programs"}
+        </Button>
+        {/* Behind a confirmation, because it replaces marks that have already
+            been given and possibly already been read. */}
+        <Button type="button" tone="danger" disabled={busy !== null || sandbox === false} onClick={() => setConfirming(true)}>
+          {busy === "all" ? "Re-marking…" : "Re-mark every candidate"}
+        </Button>
+      </div>
+    </div>
+    <Modal
+      open={confirming}
+      onClose={() => setConfirming(false)}
+      title="Re-mark every candidate&rsquo;s program?"
+      description="Every submitted program on this assessment is run again and its mark replaced, including marks that have already been given and released. Do this after correcting a test case that was wrong — not to check on a run that is simply still going."
+      actions={<><Button tone="secondary" onClick={() => setConfirming(false)}>Cancel</Button><Button tone="danger" onClick={() => run(true)}>Re-mark everyone</Button></>}
+    >
+      <div className="launch-summary"><strong>{exam.title}</strong><span>{exam.code} &middot; {exam.questions.filter((q) => q.type === "coding").length} coding {exam.questions.filter((q) => q.type === "coding").length === 1 ? "question" : "questions"}</span></div>
+    </Modal>
+  </Card>;
+}
+
 export function ResultsScreen() {
-  const { state, hydrated, publishResults } = useExam();
+  const { state, hydrated, publishResults, refreshExam } = useExam();
   const [testFilter, setTestFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
@@ -575,21 +801,28 @@ export function ResultsScreen() {
     [state.results, testFilter],
   );
 
-  // A withheld score cannot be ranked against a released one, so the two are
-  // kept apart: released results are ranked, withheld ones are listed by name.
+  // Three readings of a row, and only the first is a result. A paper still
+  // being marked has a score, but it is a running total: ranking it against
+  // finished papers would put a candidate last for work nobody has read yet,
+  // and a withheld one has no score to rank at all.
   const ranked = useMemo(() => {
     const scored = visible.flatMap((result) =>
-      result.score === null ? [] : [{ result, score: result.score }],
+      result.score === null || (result.pendingMarking ?? 0) > 0 ? [] : [{ result, score: result.score }],
     );
     return scored
       .sort((a, b) => percentage(b.score, b.result.total) - percentage(a.score, a.result.total))
       .map((row, index) => ({ ...row, rank: index + 1 }));
   }, [visible]);
 
+  const marking = useMemo(
+    () => visible.filter((result) => result.score !== null && (result.pendingMarking ?? 0) > 0),
+    [visible],
+  );
   const withheld = useMemo(() => visible.filter((result) => result.score === null), [visible]);
 
-  // Averages are taken over released marks only. Counting a withheld paper as
-  // nought would drag the cohort down with a mark nobody has published.
+  // Averages are taken over finished, released marks only. Counting a withheld
+  // paper — or one whose last program is still in the runner's queue — as
+  // nought would drag the cohort down with a mark nobody has decided.
   const stats = useMemo(() => {
     if (!ranked.length) return { submitted: visible.length, average: 0, highest: 0, topName: "—" };
     const percentages = ranked.map((row) => percentage(row.score, row.result.total));
@@ -643,6 +876,24 @@ export function ResultsScreen() {
       </div>
     </div>
 
+    {/* A separate notice from the withheld one, because it is a different
+        answer to "why is there no score here": this paper has been released,
+        it simply is not finished. Publishing it now hands a candidate a total
+        that will move under them. */}
+    {marking.length > 0 && <div className="results-notice">
+      <Icon name="clock" size={18}/>
+      <div>
+        <strong>{marking.length} {marking.length === 1 ? "paper is" : "papers are"} still being marked</strong>
+        <small>Written answers wait for a marker; programs are scored by the code runner within a minute of submission. These totals are not final and are left out of the cohort average.</small>
+      </div>
+    </div>}
+
+    {/* Only for an assessment that actually has programs on it, and only for
+        one at a time — a run is a thing done to a particular paper, the same
+        way publication is. */}
+    {chosen && chosen.questions.some((question) => question.type === "coding") &&
+      <CodingRunPanel exam={chosen} pending={marking.length} onRan={() => { void refreshExam(chosen.id); }}/>}
+
     {/* Said plainly, because the difference between "nobody has sat this" and
         "nobody has released this" is the whole question a candidate is asking. */}
     {withheld.length > 0 && <div className="results-notice">
@@ -659,8 +910,8 @@ export function ResultsScreen() {
 
     <div className="stats-grid three">
       <StatCard label="Students submitted" value={stats.submitted} detail="Recorded submissions" icon="file" tone="blue"/>
-      <StatCard label="Average score" value={ranked.length ? `${stats.average}%` : "—"} detail={ranked.length ? "Across released marks" : "No released marks"} icon="chart" tone="teal"/>
-      <StatCard label="Highest score" value={ranked.length ? `${stats.highest}%` : "—"} detail={ranked.length ? stats.topName : "No released marks"} icon="shield" tone="navy"/>
+      <StatCard label="Average score" value={ranked.length ? `${stats.average}%` : "—"} detail={ranked.length ? "Across finished marks" : "No finished marks"} icon="chart" tone="teal"/>
+      <StatCard label="Highest score" value={ranked.length ? `${stats.highest}%` : "—"} detail={ranked.length ? stats.topName : "No finished marks"} icon="shield" tone="navy"/>
     </div>
     <Card className="table-card">
       {visible.length ? <TableShell caption="Exam results">
@@ -675,6 +926,19 @@ export function ResultsScreen() {
             <td>{timeTaken(test, result.submittedAt)}</td>
             <td><Badge tone={result.mode === "automatic" ? "warning" : "success"}>{result.mode === "automatic" ? "Auto-submitted" : "Submitted"}</Badge></td>
             <td><div className="row-actions"><Button tone="ghost" onClick={() => setSelectedId(result.id)}>View result</Button></div></td>
+          </tr>; })}
+          {/* Unranked and unfinished, but the running total is still shown:
+              faculty are the ones who have to decide whether to wait, and
+              "something out of thirty so far" is what tells them. */}
+          {marking.map((result) => { const student = state.students.find((s) => s.id === result.studentId); const test = state.tests.find((t) => t.id === result.testId); const pending = result.pendingMarking ?? 0; return <tr key={result.id} className="is-withheld">
+            <td>—</td>
+            <td className="table-title">{student?.name ?? "Unknown candidate"}</td>
+            <td>{student?.registrationNo ?? "—"}</td>
+            <td><Badge tone="warning">Awaiting marking</Badge></td>
+            <td><span className="muted-note">{formatScore(result.score ?? 0, result.total)} so far</span></td>
+            <td>{timeTaken(test, result.submittedAt)}</td>
+            <td><Badge tone={result.mode === "automatic" ? "warning" : "success"}>{result.mode === "automatic" ? "Auto-submitted" : "Submitted"}</Badge></td>
+            <td><div className="row-actions"><span className="muted-note">{pending} {pending === 1 ? "answer" : "answers"} left</span></div></td>
           </tr>; })}
           {withheld.map((result) => { const student = state.students.find((s) => s.id === result.studentId); const test = state.tests.find((t) => t.id === result.testId); return <tr key={result.id} className="is-withheld">
             <td>—</td>

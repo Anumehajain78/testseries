@@ -5,7 +5,11 @@ export type ExamStatus = "draft" | "scheduled" | "live" | "completed" | "cancell
 // into "submitted" would misreport them as having sat the paper.
 export type StudentExamStatus = "not-ready" | "ready" | "in-progress" | "submitted" | "terminated";
 export type ConnectionStatus = "online" | "warning" | "offline";
-export type QuestionType = "mcq" | "multiple" | "text";
+export type QuestionType = "mcq" | "multiple" | "text" | "coding";
+// One language for now. It is still named on every coding question rather than
+// assumed, so the day a second runner exists no paper has to be re-authored to
+// say which language it was always written in.
+export type CodingLanguage = "python";
 export type AuditSeverity = "info" | "warning" | "critical";
 // Visual tone shared by the Badge component and the status maps in status.ts.
 export type BadgeTone = "success" | "warning" | "danger" | "info" | "neutral" | "live";
@@ -14,7 +18,44 @@ export type BadgeTone = "success" | "warning" | "danger" | "info" | "neutral" | 
 export type AnswerValue =
   | { kind: "single"; option: number }
   | { kind: "multiple"; options: number[] }
-  | { kind: "text"; text: string };
+  | { kind: "text"; text: string }
+  | { kind: "code"; source: string };
+
+/**
+ * One test case behind a coding question.
+ *
+ * Faculty author the whole case; a candidate's paper carries only the cases
+ * marked visible, and strips `expectedStdout` even from those. The expected
+ * output is the answer key — it is to a coding question what `isCorrect` is to
+ * a multiple-choice one, and a paper that shipped it would be a paper that
+ * shipped its own marking scheme.
+ *
+ * Both shapes are this one type, with the withheld fields optional, so a
+ * component cannot read a key that was never sent to the machine it is running
+ * on: there is nothing to read.
+ */
+export interface CodingTestCase {
+  position: number;
+  stdin: string;
+  /** Withheld from candidates. */
+  expectedStdout?: string;
+  /** Withheld from candidates: every case they receive is a visible one. */
+  hidden?: boolean;
+  weight?: number;
+}
+
+/** The authoring form, where every field is the faculty's to fill in.
+ *
+ *  No `position`: order is carried by the list itself, both in the builder and
+ *  on the wire, and the server numbers the cases from it. A second copy of the
+ *  same fact would disagree with the list the first time a case in the middle
+ *  of it was removed. */
+export interface AuthoredCodingTestCase {
+  stdin: string;
+  expectedStdout: string;
+  hidden: boolean;
+  weight: number;
+}
 
 export interface Question {
   id: string;
@@ -24,6 +65,11 @@ export interface Question {
   correctOption?: number;
   correctOptions?: number[];
   marks: number;
+  /** Coding questions only. */
+  language?: CodingLanguage;
+  /** Pre-filled in the candidate's editor. Null when the paper offers none. */
+  starterCode?: string | null;
+  tests?: CodingTestCase[];
 }
 
 export interface ExamConfig {
@@ -120,6 +166,12 @@ export interface Result {
    *  not a zero, and rendering it as one would tell a candidate they failed. */
   score: number | null;
   total: number;
+  /** Answers on this paper that nothing has scored yet — a written one waiting
+   *  for a marker, or a program waiting for the code runner. While this is
+   *  above zero the score is a running total, not a result, and a screen that
+   *  presents it as final is telling a candidate they lost marks that nobody
+   *  has decided. Absent on a row the server predates; zero is its own default. */
+  pendingMarking?: number;
   submittedAt: string;
   mode: "manual" | "automatic";
 }
@@ -185,8 +237,12 @@ export interface NewTestInput {
     type: QuestionType;
     prompt: string;
     options: string[];
-    /** Indices of the correct choices. Empty for a written answer. */
+    /** Indices of the correct choices. Empty for a written or coding answer. */
     correctOptions: number[];
     marks: number;
+    /** Coding questions only; omitted entirely for every other type. */
+    language?: CodingLanguage;
+    starterCode?: string | null;
+    tests?: AuthoredCodingTestCase[];
   }>;
 }

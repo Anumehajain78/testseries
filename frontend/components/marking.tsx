@@ -14,6 +14,13 @@ import { Badge, Button, ButtonLink, Card, EmptyState, LoadingState, PageHeader }
 // Written answers cannot be, so until this screen existed a candidate could
 // write a perfect answer and score nothing, with no way to put it right.
 //
+// Coding answers are the other kind that cannot be scored at submission time,
+// and they are deliberately not here: the server runs them against the
+// question's test cases and awards the marks itself. `list_for_marking` serves
+// only written answers, so this queue stays a queue of things a person can
+// actually do something about. Where a program has got to is shown on the
+// results screen instead, which is where an unfinished total matters.
+//
 // The queue is ordered unmarked-first, because the job is finishing the ones
 // nobody has read — a marked answer is shown so it can be revisited, not so it
 // can be worked through again.

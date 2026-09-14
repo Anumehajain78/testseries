@@ -28,6 +28,12 @@ export type MonitorSummaryDto = Schemas["MonitorSummary"];
 export type SubmissionReceiptDto = Schemas["SubmissionReceipt"];
 export type StudentQuestionDto = Schemas["StudentQuestionOut"];
 export type QuestionDto = Schemas["QuestionOut"];
+/** The faculty test case, answer key and all. */
+export type TestCaseDto = Schemas["TestCaseOut"];
+/** The candidate's: a worked example, with no expected output to read. */
+export type StudentTestCaseDto = Schemas["StudentTestCaseOut"];
+export type RuntimeCapabilitiesDto = Schemas["RuntimeCapabilities"];
+export type CodingRunSummaryDto = Schemas["CodingRunSummary"];
 export type StudentDto = Schemas["StudentOut"];
 export type LabDto = Schemas["LabOut"];
 export type ComputerDto = Schemas["ComputerOut"];

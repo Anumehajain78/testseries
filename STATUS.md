@@ -6,7 +6,7 @@ A plain checklist of the whole project.
 - **Half done** — partly working
 - **Not started** — not built yet
 
-**11 of 14 main phases finished.**
+**12 of 14 main phases finished.**
 
 ---
 
@@ -63,6 +63,7 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | **Works** | **Publish results.** Marks stay hidden until the exam cell releases them, one assessment at a time. Until now there was no way to release them at all — every candidate saw "scores withheld" for ever. |
 | **Works** | **Export report.** Downloads the released marks as a spreadsheet. Withheld marks are left out rather than written as zero. |
 | **Works** | **Run health check.** Reads what each workstation last reported and says, lab by lab, how many are online, how many have gone quiet, and how many have never reported at all. No button on the screens is fake any more. |
+| **Works** | **Coding questions.** Candidates write a Python program; the server runs it against test cases and marks it a minute or so after they submit. Teachers set the examples candidates can see and the hidden cases they cannot. |
 | **Works** | **Put it on the college network.** One command — `./deploy/lan-server.sh` — works out this machine's address, sets up its secrets, and starts everything so lab computers can reach it by typing that address. |
 
 **One thing to know about running it for real:** start the server with several
@@ -70,6 +71,10 @@ workers — `uvicorn app.main:app --workers 8`. One worker serves requests one a
 a time whatever else is tuned, because each request is mostly Python work. With
 one worker, 200 candidates signing in together gave 104 sign-ins and 96
 failures; with eight, all 200 got in, the slowest in about three seconds.
+
+**One thing to know about running candidates' code:** this is the riskiest thing the system does, so the program runs shut inside a box with no network, no view of the server's files, and a limit on time and memory. It cannot reach the database, cannot read the password file, and cannot leave anything behind. If that box is not available on a machine, **no code runs at all** — the marks simply do not appear, rather than the program being run unprotected. Teachers can check on the Assessments screen whether a machine can run code.
+
+**One thing to know about marks for programs:** they arrive a minute or so after a candidate submits, not instantly. Running sixty programs takes time, and nobody should wait at a screen for it. Until then the paper says "awaiting marking", the same as a written answer waiting for a teacher.
 
 **One thing to know about the health check:** the server cannot ring a computer — computers report in, and the server remembers when each one last did. So the check reads those reports rather than pinging anything, and the screen says so. A machine nobody has set up yet is listed separately from one that was working and stopped, because those need different people.
 
@@ -88,13 +93,12 @@ needs the server started with several workers — see above.
 
 ---
 
-## Big things not started
+## Big things not finished
 
-Always planned for later. These are the difference between a working web app and a real exam hall system.
+Two left. Both are about the lab machine rather than the server.
 
 - **Desktop exam app (Tauri)** — *written but never built.* The whole app is in `desktop/`, but this machine cannot compile it: it needs system libraries only an administrator can install. See `desktop/README.md` for the one command, and expect first-build errors.
 - **Cheating signals from the desktop app** — *blocked, and it needs a decision.* The desktop app can see a student switching away, but it has no way to ask the server which exam session the machine is showing, so it cannot report it. Heartbeats and the floor plan work; these events pile up on the machine and go nowhere. Someone has to choose how the machine learns its session.
-- **Coding questions** — running student code safely, with time and memory limits.
 
 ---
 

@@ -70,6 +70,10 @@ function examPayload(input: NewTestInput) {
       // paper is reusable rather than trapped in this one exam. The type is
       // carried through rather than assumed — sending everything as
       // multiple-choice would rewrite written questions on every edit.
+      // A coding question carries its runner configuration instead of an option
+      // list. The fields are attached only for that type: sending `tests: []`
+      // alongside a multiple-choice question would invite the server to file an
+      // empty answer key against it.
       questions: input.questions.map((question) => ({
         type: question.type,
         prompt: question.prompt,
@@ -78,6 +82,23 @@ function examPayload(input: NewTestInput) {
           body,
           isCorrect: question.correctOptions.includes(index),
         })),
+        ...(question.type === "coding"
+          ? {
+              language: question.language ?? "python",
+              starterCode: question.starterCode ?? null,
+              // No `position` on the wire: the server numbers the cases from
+              // their order in this array, the same way it numbers options.
+              // Sending one too would be a second source of truth for the same
+              // fact, and the two would disagree the first time a case in the
+              // middle of the list was removed.
+              tests: (question.tests ?? []).map((test) => ({
+                stdin: test.stdin,
+                expectedStdout: test.expectedStdout,
+                hidden: test.hidden,
+                weight: test.weight,
+              })),
+            }
+          : {}),
       })),
       config: {
         questionsPerStudent: input.config?.questionsPerStudent ?? 0,

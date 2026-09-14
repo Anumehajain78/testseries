@@ -3,12 +3,13 @@ import type { ExamApi } from "./types";
 
 export type { ExamApi, CreateExamResult, SubmitExamResult, SubmitMode } from "./types";
 export { examStore, emptyExamState, type StoreSnapshot } from "./store";
-export type { MarkingItemDto, NewStudentDto, ImportSummaryDto } from "./contract";
+export type { CodingRunSummaryDto, MarkingItemDto, NewStudentDto, ImportSummaryDto, RuntimeCapabilitiesDto } from "./contract";
 export { watchExam, type MonitorSocket } from "./realtime";
 export {
   ApiError,
   candidateSessionId,
   candidateWrites,
+  coding,
   directory,
   loadExamSlice, loadStateFromServer,
   marking,
