@@ -237,8 +237,35 @@ export const writes = {
 };
 
 /** Forget this browser's credential. The server holds no session to end. */
+/** End the session here and on the server.
+ *
+ * Local credentials are cleared first and unconditionally. Somebody pressing
+ * sign out on a shared lab machine must not remain signed in because the
+ * server happened to be unreachable — what the screen says has to be true even
+ * when the request fails.
+ *
+ * The refresh token is what is sent, because it is the part that outlives the
+ * tab; the access token expires on its own within the half hour. Until this
+ * existed, signing out only made this browser forget, and a copied refresh
+ * token stayed usable for its full life.
+ *
+ * `keepalive` because sign-out is immediately followed by navigation, which
+ * would otherwise cancel the request as the page went away.
+ */
 export function signOut(): void {
+  const refreshToken = readRefreshToken();
   storeToken(null);
+  if (!refreshToken) return;
+
+  void fetch(`${apiBaseUrl()}/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+    keepalive: true,
+  }).catch(() => {
+    // Nothing useful to say to someone who has already left the screen, and
+    // the session expires on its own regardless.
+  });
 }
 
 export async function signIn(email: string, password: string): Promise<TokenPairDto> {

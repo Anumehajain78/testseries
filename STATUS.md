@@ -75,7 +75,7 @@ failures; with eight, all 200 got in, the slowest in about three seconds.
 
 **One thing to know about who may add students:** only the exam cell administrator can add, edit or import candidates. Teachers can see the list but not change it. Before, a teacher was blocked from pasting a roster but could still add the same people one form at a time — the buttons and the server now agree.
 
-**One thing to know about logins:** renewing a login now cancels the old renewal token, so a stolen one stops working the moment the real user renews. Two devices stay separate — renewing on one does not sign the other out. One loose end: signing out ends the session on the server, but the screens do not call that yet, so signing out is still only local.
+**One thing to know about logins:** renewing a login now cancels the old renewal token, so a stolen one stops working the moment the real user renews. Two devices stay separate — renewing on one does not sign the other out. Signing out now really ends the session: the old renewal token stops working the moment you press it, not whenever it happens to expire.
 
 **One thing to know about speed:** the app used to reload everything after every change — 18 requests to learn that one exam's status moved. Now a change to one assessment re-reads only that assessment: 4 requests instead of 18. This matters most on the live monitor, which refreshes every few seconds while an exam is running. Creating a new assessment still reloads everything, because a new one has to appear in the list.
 
@@ -102,8 +102,6 @@ Always planned for later. These are the difference between a working web app and
 
 1. **Install the build tools and compile the desktop app.** It is written; nobody has ever built it. `desktop/README.md` has the command.
 2. **Decide how a lab machine learns which exam session it is showing.** Until then the desktop app can watch for cheating but cannot report it.
-3. **Make signing out call the server**, so a session really ends rather than only being forgotten by the browser.
-
 **Honest about the lock down:** the desktop app keeps the exam fullscreen, blocks the developer tools, and reports attempts to close it. It does **not** stop Alt+Tab, Ctrl+Alt+Del, killing the program, a phone on the desk, or a second screen. No software on the machine can. Invigilators still matter.
 
 ---

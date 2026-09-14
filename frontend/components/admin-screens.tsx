@@ -13,6 +13,15 @@ import { AddStudentDialog, ImportRosterDialog } from "./roster";
 import { Icon } from "./icons";
 import { Badge, Button, ButtonLink, Card, EmptyState, Field, LoadingState, Modal, PageHeader, Progress, Select, StatCard, StatusDot, TableShell } from "./ui";
 
+// The dashboard greets whoever signed in. It used to say "Anita" to everyone,
+// including the administrator — being greeted by someone else's name is the
+// clearest possible sign that a screen is not really about you.
+//
+// The whole name, not the first word of it. Accounts here are not all people:
+// shortening "Exam Cell Administrator" gives "Exam", and a greeting is not
+// worth guessing which half of a name someone goes by.
+const greetingName = (fullName?: string) => (fullName ?? "").trim() || "there";
+
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 // Derive a single Online/Warning/Offline status for a lab from its computers.
@@ -23,7 +32,7 @@ function labLiveStatus(online: number, warning: number) {
 }
 
 export function AdminDashboard() {
-  const { state, hydrated } = useExam();
+  const { state, hydrated, currentUser } = useExam();
   const today = useMemo(() => {
     if (!hydrated) return null;
     const now = new Date();
@@ -43,7 +52,7 @@ export function AdminDashboard() {
   const dateLabel = new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "2-digit", month: "long" }).format(now);
 
   return <>
-    <PageHeader eyebrow={dateLabel} title={`${greeting}, Anita`} description="Here’s the current state of examinations across campus." actions={<ButtonLink href="/admin/tests/create" icon="plus">Create assessment</ButtonLink>}/>
+    <PageHeader eyebrow={dateLabel} title={`${greeting}, ${greetingName(currentUser?.fullName)}`} description="Here’s the current state of examinations across campus." actions={<ButtonLink href="/admin/tests/create" icon="plus">Create assessment</ButtonLink>}/>
     <div className="stats-grid">
       <StatCard label="Live examinations" value={liveTests.length} detail={liveTests.length ? "In session now" : "None running"} icon="monitor" tone="teal"/>
       <StatCard label="Scheduled exams" value={scheduledTests.length} detail="Awaiting launch" icon="calendar" tone="blue"/>
