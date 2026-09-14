@@ -3,6 +3,7 @@ import type { AnswerValue, AuditEvent, CodingLanguage, CodingTestCase, Computer,
 import { toConnection, toExamStatus, toSessionStatus } from "./contract";
 import type {
   AuditEventDto,
+  CodingReportDto,
   CodingRunSummaryDto,
   ComputerDto,
   ExamDetailDto,
@@ -16,6 +17,8 @@ import type {
   SessionStateDto,
   SubmissionReceiptDto,
   ResultsPageDto,
+  StudentTestCaseDto,
+  TestCaseDto,
   RuntimeCapabilitiesDto,
   SessionRowDto,
   StudentDto,
@@ -229,10 +232,13 @@ export const directory = {
  */
 export const coding = {
   capabilities: () => request<RuntimeCapabilitiesDto>("/exams/runtime/capabilities"),
-  /** `force` re-marks answers that already have a mark — see the results
-   *  screen, which makes the caller say which of the two they meant. */
+  /** `force` re-marks answers that already have a mark — see the run panel,
+   *  which makes the caller say which of the two they meant. */
   run: (examId: string, force: boolean) =>
     post<CodingRunSummaryDto>(`/exams/${examId}/coding/run?force=${force}`),
+  /** What running each candidate's program did, case by case. The evidence
+   *  behind a mark, without which a disputed one can only be argued about. */
+  reports: (examId: string) => request<CodingReportDto[]>(`/exams/${examId}/coding/reports`),
 };
 
 export const marking = {
@@ -351,7 +357,7 @@ const toTest = (exam: ExamSummaryDto, detail?: ExamDetailDto): Test => ({
 interface CodingSource {
   language?: string | null;
   starterCode?: string | null;
-  tests?: ReadonlyArray<{ position: number; stdin: string; expectedStdout?: string; hidden?: boolean; weight?: number }>;
+  tests?: ReadonlyArray<TestCaseDto | StudentTestCaseDto>;
 }
 
 /**
@@ -371,12 +377,13 @@ const codingPart = (question: CodingSource): Pick<Question, "language" | "starte
     (test): CodingTestCase => ({
       position: test.position,
       stdin: test.stdin,
-      // Left undefined rather than defaulted: on a candidate's paper the
-      // expected output was never sent, and an empty string would read as
-      // "this program should print nothing", which is a different claim.
-      expectedStdout: test.expectedStdout,
-      hidden: test.hidden,
-      weight: test.weight,
+      // Narrowed rather than defaulted. On a candidate's paper these three were
+      // never in the object at all, and `in` is what proves it: filling them in
+      // with "" and false would turn "withheld" into "expects no output, and is
+      // visible", which is a different and much worse claim.
+      ...("expectedStdout" in test
+        ? { expectedStdout: test.expectedStdout, hidden: test.hidden, weight: test.weight }
+        : {}),
     }),
   ),
 });

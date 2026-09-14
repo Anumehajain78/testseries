@@ -33,6 +33,11 @@ export type TestCaseDto = Schemas["TestCaseOut"];
 /** The candidate's: a worked example, with no expected output to read. */
 export type StudentTestCaseDto = Schemas["StudentTestCaseOut"];
 export type RuntimeCapabilitiesDto = Schemas["RuntimeCapabilities"];
+/** One candidate's program and what running it did. A hidden case's
+ *  `stdout`/`stderr` arrive empty because they are withheld — the answer
+ *  key — not because the program was silent. */
+export type CodingReportDto = Schemas["CodingReport"];
+export type CodingCaseReportDto = Schemas["CodingCaseReport"];
 export type CodingRunSummaryDto = Schemas["CodingRunSummary"];
 export type StudentDto = Schemas["StudentOut"];
 export type LabDto = Schemas["LabOut"];

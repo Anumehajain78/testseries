@@ -408,3 +408,77 @@ class TestReviewingAMark:
         plain = next(e for e in exams if e["code"].startswith("CSE") or e["code"].startswith("CS"))
         response = client.get(f"{API}/exams/{plain['id']}/coding/reports", headers=staff)
         assert response.status_code == 200
+
+
+class TestAServerFaultIsNotACandidatesFault:
+    """The scoring bug this class exists to prevent.
+
+    A case the sandbox could not run says nothing about the program. Scoring it
+    as a failure takes marks off a candidate for a fault on the server —
+    silently, and in a way nobody would think to question. One flaky case in
+    five is twenty per cent of a mark.
+    """
+
+    def test_a_case_that_never_ran_leaves_the_answer_unmarked(self, monkeypatch):
+        from app.db.models import Question as Q, QuestionTest as QT
+        from app.domain.sandbox import Execution, Outcome
+        from app.schemas.enums import QuestionType as QType
+
+        question = Q(
+            id=uuid.uuid4(), type=QType.CODING, prompt="p", marks=10,
+            language="python", time_limit_ms=1000, memory_limit_mb=64,
+        )
+        tests = [
+            QT(position=0, stdin="", expected_stdout="1", hidden=False, weight=1),
+            QT(position=1, stdin="", expected_stdout="2", hidden=True, weight=1),
+        ]
+
+        calls = {"n": 0}
+
+        def flaky(source, stdin="", **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return Execution(Outcome.OK, "1", "", 0, 5)
+            return Execution(Outcome.UNAVAILABLE, "", "sandbox gone", None, 0)
+
+        monkeypatch.setattr("app.services.coding.run_python", flaky)
+        report = coding.run_answer(question, tests, "print(1)")
+
+        assert report["incomplete"] is True, "an unrunnable case must be flagged"
+
+    def test_a_run_where_everything_ran_is_not_flagged(self, monkeypatch):
+        from app.db.models import Question as Q, QuestionTest as QT
+        from app.domain.sandbox import Execution, Outcome
+        from app.schemas.enums import QuestionType as QType
+
+        question = Q(
+            id=uuid.uuid4(), type=QType.CODING, prompt="p", marks=10,
+            language="python", time_limit_ms=1000, memory_limit_mb=64,
+        )
+        tests = [QT(position=0, stdin="", expected_stdout="1", hidden=False, weight=1)]
+        monkeypatch.setattr(
+            "app.services.coding.run_python",
+            lambda source, stdin="", **kwargs: Execution(Outcome.OK, "1", "", 0, 5),
+        )
+        report = coding.run_answer(question, tests, "print(1)")
+        assert report["incomplete"] is False
+        assert report["marks"] == 10.0
+
+    def test_a_wrong_answer_is_still_a_wrong_answer(self, monkeypatch):
+        """The fix must not turn every failure into "try again later"."""
+        from app.db.models import Question as Q, QuestionTest as QT
+        from app.domain.sandbox import Execution, Outcome
+        from app.schemas.enums import QuestionType as QType
+
+        question = Q(
+            id=uuid.uuid4(), type=QType.CODING, prompt="p", marks=10,
+            language="python", time_limit_ms=1000, memory_limit_mb=64,
+        )
+        tests = [QT(position=0, stdin="", expected_stdout="1", hidden=False, weight=1)]
+        monkeypatch.setattr(
+            "app.services.coding.run_python",
+            lambda source, stdin="", **kwargs: Execution(Outcome.FAILED, "", "boom", 1, 5),
+        )
+        report = coding.run_answer(question, tests, "raise SystemExit(1)")
+        assert report["incomplete"] is False
+        assert report["marks"] == 0.0

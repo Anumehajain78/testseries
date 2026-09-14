@@ -63,6 +63,11 @@ def run_answer(question: Question, tests: list[QuestionTest], source: str) -> di
     cases: list[dict] = []
     earned = 0
     total_weight = sum(test.weight for test in tests)
+    # A case the sandbox could not run says nothing about the program. Scoring
+    # it as a failure would take marks off a candidate for a fault on the
+    # server, silently — one flaky case in five is twenty per cent of a mark
+    # nobody would ever think to question.
+    unavailable = False
 
     for test in tests:
         execution = run_python(
@@ -71,6 +76,8 @@ def run_answer(question: Question, tests: list[QuestionTest], source: str) -> di
             time_limit_ms=time_limit,
             memory_limit_mb=memory_limit,
         )
+        if execution.outcome is Outcome.UNAVAILABLE:
+            unavailable = True
         passed = (
             execution.outcome is Outcome.OK
             and normalise(execution.stdout) == normalise(test.expected_stdout)
@@ -98,6 +105,10 @@ def run_answer(question: Question, tests: list[QuestionTest], source: str) -> di
         "passed": sum(1 for case in cases if case["passed"]),
         "total": len(cases),
         "cases": cases,
+        #: True when at least one case never ran. The caller must not record
+        #: these marks: the paper stays unmarked and is picked up again, which
+        #: is the right outcome for a transient fault on the server.
+        "incomplete": unavailable,
     }
 
 
@@ -174,6 +185,11 @@ def grade_session(db: Session, session_id: UUID, *, force: bool = False) -> dict
             continue
 
         report = run_answer(question, list(question.tests), source)
+        if report["incomplete"]:
+            # Left unmarked on purpose, so the next pass tries again. Recording
+            # a mark here would turn a server fault into a candidate's result.
+            skipped += 1
+            continue
         answer.awarded_marks = report["marks"]
         answer.run_report = report
         graded += 1
@@ -227,6 +243,10 @@ def claim_and_grade(db: Session, *, limit: int = 4) -> dict:
         source = (answer.value or {}).get("source")
         if isinstance(source, str) and source.strip():
             report = run_answer(question, list(question.tests), source)
+            if report["incomplete"]:
+                # Try again next pass rather than record a mark a server fault
+                # produced.
+                continue
         else:
             report = {"marks": 0, "passed": 0, "total": len(question.tests), "cases": []}
         answer.awarded_marks = report["marks"]
