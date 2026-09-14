@@ -26,6 +26,7 @@ from app.schemas.result import PublishResultsRequest, ResultsPage
 from app.domain.sandbox import SandboxUnavailable, sandbox_available
 from app.schemas.session import (
     AwardMarksRequest,
+    CodingReport,
     CodingRunSummary,
     RuntimeCapabilities,
     MarkingItem,
@@ -181,6 +182,21 @@ def runtime_capabilities(_: Staff) -> RuntimeCapabilities:
     business.
     """
     return RuntimeCapabilities(coding_sandbox=sandbox_available() is not None)
+
+
+@router.get(
+    "/{exam_id}/coding/reports",
+    response_model=list[CodingReport],
+    operation_id="listCodingReports",
+)
+def list_coding_reports(exam_id: UUID, db: DbSession, _: Staff) -> list[CodingReport]:
+    """Every coding answer on this exam, and how running it went.
+
+    A mark of 6 out of 10 is not reviewable on its own. This is what a marker
+    looks at when a candidate disputes one, and what a faculty member checks
+    before deciding a test case was wrong.
+    """
+    return coding.list_reports(db, exam_id)
 
 
 @router.post(

@@ -215,3 +215,42 @@ class RuntimeCapabilities(Schema):
         alias="codingSandbox",
         description="False means coding answers cannot be marked on this machine.",
     )
+
+
+class CodingCaseReport(Schema):
+    """How one test case went.
+
+    ``stdout`` and ``stderr`` are empty for a hidden case — withheld, not
+    silent. A view that renders the two the same way tells a marker the
+    program printed nothing when in fact nobody is being shown what it
+    printed, and hidden cases are the answer key.
+    """
+
+    position: int
+    hidden: bool
+    passed: bool
+    outcome: str = Field(description="ok, failed, timed_out, out_of_memory or unavailable.")
+    duration_ms: int = Field(alias="durationMs")
+    stdout: str = ""
+    stderr: str = ""
+
+
+class CodingReport(Schema):
+    """One candidate's program, and what running it did.
+
+    The counterpart of the written-answer marking queue: a mark of 6 out of 10
+    is not reviewable on its own, and a disputed result needs to show which
+    case failed rather than be argued about.
+    """
+
+    session_id: UUID = Field(alias="sessionId")
+    question_id: UUID = Field(alias="questionId")
+    student_name: str = Field(alias="studentName")
+    registration_no: str = Field(alias="registrationNo")
+    prompt: str
+    marks: int = Field(description="What this question is worth.")
+    source: str = Field(description="The program the candidate submitted.")
+    awarded_marks: float | None = Field(default=None, alias="awardedMarks")
+    passed: int = 0
+    total: int = 0
+    cases: list[CodingCaseReport] = Field(default_factory=list)

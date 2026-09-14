@@ -222,6 +222,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exams/runtime/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runtime Capabilities
+         * @description What this server can actually do.
+         *
+         *     Exists for one honest answer: whether coding answers will ever be marked.
+         *     Without it a console shows "awaiting marking" for ever on a machine with no
+         *     sandbox, and nobody can tell that from marking that simply has not happened
+         *     yet. Staff only — which components are missing is not a candidate's
+         *     business.
+         */
+        get: operations["getRuntimeCapabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/exams/{exam_id}": {
         parameters: {
             query?: never;
@@ -263,6 +289,58 @@ export interface paths {
          * @description Requires a reason, which is written to the audit trail as CRITICAL.
          */
         post: operations["cancelExam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exams/{exam_id}/coding/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Coding Reports
+         * @description Every coding answer on this exam, and how running it went.
+         *
+         *     A mark of 6 out of 10 is not reviewable on its own. This is what a marker
+         *     looks at when a candidate disputes one, and what a faculty member checks
+         *     before deciding a test case was wrong.
+         */
+        get: operations["listCodingReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/exams/{exam_id}/coding/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Coding Answers
+         * @description Mark this exam's coding answers now, rather than waiting for the sweep.
+         *
+         *     Normally unnecessary — submitted papers are marked in the background within
+         *     a minute. This exists for the case that is not normal: a question whose
+         *     test cases were wrong. Fix them, re-run with ``force``, and every candidate
+         *     is re-marked against the corrected question.
+         *
+         *     Refuses outright when the sandbox is unavailable. Reporting "0 marked" on a
+         *     machine that cannot run code at all would read as "nobody scored anything".
+         */
+        post: operations["runCodingAnswers"];
         delete?: never;
         options?: never;
         head?: never;
@@ -946,6 +1024,119 @@ export interface components {
              * @default null
              */
             sessionId: string | null;
+        };
+        /**
+         * CodeAnswer
+         * @description A program the candidate wrote.
+         *
+         *     Only the source is accepted. The language comes from the question, not
+         *     from the answer: letting a candidate name their own runtime would let them
+         *     choose one the sandbox does not confine.
+         */
+        CodeAnswer: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "code";
+            /** Source */
+            source: string;
+        };
+        /**
+         * CodingCaseReport
+         * @description How one test case went.
+         *
+         *     ``stdout`` and ``stderr`` are empty for a hidden case — withheld, not
+         *     silent. A view that renders the two the same way tells a marker the
+         *     program printed nothing when in fact nobody is being shown what it
+         *     printed, and hidden cases are the answer key.
+         */
+        CodingCaseReport: {
+            /** Durationms */
+            durationMs: number;
+            /** Hidden */
+            hidden: boolean;
+            /**
+             * Outcome
+             * @description ok, failed, timed_out, out_of_memory or unavailable.
+             */
+            outcome: string;
+            /** Passed */
+            passed: boolean;
+            /** Position */
+            position: number;
+            /**
+             * Stderr
+             * @default
+             */
+            stderr: string;
+            /**
+             * Stdout
+             * @default
+             */
+            stdout: string;
+        };
+        /**
+         * CodingReport
+         * @description One candidate's program, and what running it did.
+         *
+         *     The counterpart of the written-answer marking queue: a mark of 6 out of 10
+         *     is not reviewable on its own, and a disputed result needs to show which
+         *     case failed rather than be argued about.
+         */
+        CodingReport: {
+            /** Awardedmarks */
+            awardedMarks?: number | null;
+            /** Cases */
+            cases?: components["schemas"]["CodingCaseReport"][];
+            /**
+             * Marks
+             * @description What this question is worth.
+             */
+            marks: number;
+            /**
+             * Passed
+             * @default 0
+             */
+            passed: number;
+            /** Prompt */
+            prompt: string;
+            /**
+             * Questionid
+             * Format: uuid
+             */
+            questionId: string;
+            /** Registrationno */
+            registrationNo: string;
+            /**
+             * Sessionid
+             * Format: uuid
+             */
+            sessionId: string;
+            /**
+             * Source
+             * @description The program the candidate submitted.
+             */
+            source: string;
+            /** Studentname */
+            studentName: string;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * CodingRunSummary
+         * @description What a marking run did. Both numbers matter: "0 marked, 30 skipped" is
+         *     a run that found everything already done, which is a different message
+         *     from "0 marked, 0 skipped".
+         */
+        CodingRunSummary: {
+            /** Graded */
+            graded: number;
+            /** Skipped */
+            skipped: number;
         };
         /**
          * ComputerOut
@@ -1745,15 +1936,25 @@ export interface components {
         QuestionIn: {
             /** Course */
             course?: string | null;
+            /** Language */
+            language?: string | null;
             /** Marks */
             marks: number;
+            /** Memorylimitmb */
+            memoryLimitMb?: number | null;
             /**
              * Options
-             * @description Empty for text questions; at least two entries otherwise.
+             * @description Empty for text and coding questions; at least two entries otherwise.
              */
             options?: components["schemas"]["OptionIn"][];
             /** Prompt */
             prompt: string;
+            /** Startercode */
+            starterCode?: string | null;
+            /** Tests */
+            tests?: components["schemas"]["TestCaseIn"][];
+            /** Timelimitms */
+            timeLimitMs?: number | null;
             type: components["schemas"]["QuestionType"];
         };
         /**
@@ -1771,19 +1972,29 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Language */
+            language?: string | null;
             /** Marks */
             marks: number;
+            /** Memorylimitmb */
+            memoryLimitMb?: number | null;
             /** Options */
             options?: components["schemas"]["OptionOut"][];
             /** Prompt */
             prompt: string;
+            /** Startercode */
+            starterCode?: string | null;
+            /** Tests */
+            tests?: components["schemas"]["TestCaseOut"][];
+            /** Timelimitms */
+            timeLimitMs?: number | null;
             type: components["schemas"]["QuestionType"];
         };
         /**
          * QuestionType
          * @enum {string}
          */
-        QuestionType: "mcq" | "multiple" | "text";
+        QuestionType: "mcq" | "multiple" | "text" | "coding";
         /**
          * RealtimeEvent
          * @description WebSocket frame types. Server-sent unless noted.
@@ -1891,6 +2102,17 @@ export interface components {
              */
             csv: string;
         };
+        /**
+         * RuntimeCapabilities
+         * @description What the server can do, as opposed to what it is configured to offer.
+         */
+        RuntimeCapabilities: {
+            /**
+             * Codingsandbox
+             * @description False means coding answers cannot be marked on this machine.
+             */
+            codingSandbox: boolean;
+        };
         /** SaveAnswerRequest */
         SaveAnswerRequest: {
             /**
@@ -1899,7 +2121,7 @@ export interface components {
              */
             clientSeq: number;
             /** Value */
-            value: components["schemas"]["SingleAnswer"] | components["schemas"]["MultipleAnswer"] | components["schemas"]["TextAnswer"];
+            value: components["schemas"]["SingleAnswer"] | components["schemas"]["MultipleAnswer"] | components["schemas"]["TextAnswer"] | components["schemas"]["CodeAnswer"];
         };
         /** SaveAnswerResponse */
         SaveAnswerResponse: {
@@ -2100,7 +2322,7 @@ export interface components {
         SessionState: {
             /** Answers */
             answers?: {
-                [key: string]: components["schemas"]["SingleAnswer"] | components["schemas"]["MultipleAnswer"] | components["schemas"]["TextAnswer"];
+                [key: string]: components["schemas"]["SingleAnswer"] | components["schemas"]["MultipleAnswer"] | components["schemas"]["TextAnswer"] | components["schemas"]["CodeAnswer"];
             };
             /** Endsat */
             endsAt?: string | null;
@@ -2256,6 +2478,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Language */
+            language?: string | null;
             /** Marks */
             marks: number;
             /** Options */
@@ -2267,6 +2491,10 @@ export interface components {
             position: number;
             /** Prompt */
             prompt: string;
+            /** Startercode */
+            starterCode?: string | null;
+            /** Tests */
+            tests?: components["schemas"]["StudentTestCaseOut"][];
             type: components["schemas"]["QuestionType"];
         };
         /**
@@ -2274,6 +2502,23 @@ export interface components {
          * @enum {string}
          */
         StudentStatus: "ACTIVE" | "BLOCKED";
+        /**
+         * StudentTestCaseOut
+         * @description Candidate-facing test case — a worked example, nothing more.
+         *
+         *     No ``expected_stdout``, for the same structural reason ``StudentOptionOut``
+         *     has no ``is_correct``: a coding question's expected outputs *are* its answer
+         *     key, and a candidate who can read them can print them without solving
+         *     anything. Hidden cases never reach this model at all; visible ones arrive
+         *     stripped of their answer, so a candidate sees the shape of the input and
+         *     has to work out what comes back.
+         */
+        StudentTestCaseOut: {
+            /** Position */
+            position: number;
+            /** Stdin */
+            stdin: string;
+        };
         /** StudentUpdate */
         StudentUpdate: {
             /** Email */
@@ -2331,6 +2576,50 @@ export interface components {
         SubmitRequest: {
             /** Idempotencykey */
             idempotencyKey?: string | null;
+        };
+        /**
+         * TestCaseIn
+         * @description One test case for a coding question. Faculty scope only.
+         */
+        TestCaseIn: {
+            /** Expectedstdout */
+            expectedStdout: string;
+            /**
+             * Hidden
+             * @default true
+             */
+            hidden: boolean;
+            /**
+             * Stdin
+             * @default
+             */
+            stdin: string;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+        };
+        /**
+         * TestCaseOut
+         * @description Faculty-facing test case. Carries the expected output.
+         */
+        TestCaseOut: {
+            /** Expectedstdout */
+            expectedStdout: string;
+            /** Hidden */
+            hidden: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Position */
+            position: number;
+            /** Stdin */
+            stdin: string;
+            /** Weight */
+            weight: number;
         };
         /** TextAnswer */
         TextAnswer: {
@@ -2761,6 +3050,26 @@ export interface operations {
             };
         };
     };
+    getRuntimeCapabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeCapabilities"];
+                };
+            };
+        };
+    };
     getExam: {
         parameters: {
             query?: never;
@@ -2867,6 +3176,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listCodingReports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exam_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodingReport"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runCodingAnswers: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                exam_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodingRunSummary"];
                 };
             };
             /** @description Validation Error */

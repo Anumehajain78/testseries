@@ -235,3 +235,55 @@ def claim_and_grade(db: Session, *, limit: int = 4) -> dict:
 
     db.commit()
     return {"graded": graded, "unavailable": False}
+
+
+def list_reports(db: Session, exam_id: UUID) -> list["CodingReport"]:
+    """Every coding answer on an exam, with how it was marked.
+
+    The counterpart of the written-answer marking queue. Staff-guarded at the
+    route, and it carries candidate names for the same reason that one does:
+    somebody reviewing a mark needs to know whose work they are looking at.
+    """
+    from app.db.models import Student, User
+    from app.schemas.session import CodingCaseReport, CodingReport
+
+    questions = {
+        q.id: q
+        for q in db.scalars(
+            select(Question)
+            .join(ExamQuestion, ExamQuestion.question_id == Question.id)
+            .where(ExamQuestion.exam_id == exam_id, Question.type == QuestionType.CODING)
+        ).all()
+    }
+    if not questions:
+        return []
+
+    rows = db.execute(
+        select(Answer, ExamSession, User, Student)
+        .join(ExamSession, ExamSession.id == Answer.session_id)
+        .join(Student, Student.user_id == ExamSession.student_id)
+        .join(User, User.id == Student.user_id)
+        .where(ExamSession.exam_id == exam_id, Answer.question_id.in_(questions))
+        .order_by(User.full_name)
+    ).all()
+
+    reports: list[CodingReport] = []
+    for answer, session, user, student in rows:
+        question = questions[answer.question_id]
+        report = answer.run_report or {}
+        reports.append(
+            CodingReport(
+                session_id=session.id,
+                question_id=answer.question_id,
+                student_name=user.full_name,
+                registration_no=student.registration_no,
+                prompt=question.prompt,
+                marks=question.marks,
+                source=(answer.value or {}).get("source", ""),
+                awarded_marks=float(answer.awarded_marks) if answer.awarded_marks is not None else None,
+                passed=report.get("passed", 0),
+                total=report.get("total", 0),
+                cases=[CodingCaseReport(**case) for case in report.get("cases", [])],
+            )
+        )
+    return reports

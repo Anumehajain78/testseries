@@ -271,6 +271,127 @@
         "title": "CodeAnswer",
         "type": "object"
       },
+      "CodingCaseReport": {
+        "description": "How one test case went.\n\n``stdout`` and ``stderr`` are empty for a hidden case \u2014 withheld, not\nsilent. A view that renders the two the same way tells a marker the\nprogram printed nothing when in fact nobody is being shown what it\nprinted, and hidden cases are the answer key.",
+        "properties": {
+          "durationMs": {
+            "title": "Durationms",
+            "type": "integer"
+          },
+          "hidden": {
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "outcome": {
+            "description": "ok, failed, timed_out, out_of_memory or unavailable.",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "stderr": {
+            "default": "",
+            "title": "Stderr",
+            "type": "string"
+          },
+          "stdout": {
+            "default": "",
+            "title": "Stdout",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "hidden",
+          "passed",
+          "outcome",
+          "durationMs"
+        ],
+        "title": "CodingCaseReport",
+        "type": "object"
+      },
+      "CodingReport": {
+        "description": "One candidate's program, and what running it did.\n\nThe counterpart of the written-answer marking queue: a mark of 6 out of 10\nis not reviewable on its own, and a disputed result needs to show which\ncase failed rather than be argued about.",
+        "properties": {
+          "awardedMarks": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awardedmarks"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/CodingCaseReport"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "marks": {
+            "description": "What this question is worth.",
+            "title": "Marks",
+            "type": "integer"
+          },
+          "passed": {
+            "default": 0,
+            "title": "Passed",
+            "type": "integer"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "questionId": {
+            "format": "uuid",
+            "title": "Questionid",
+            "type": "string"
+          },
+          "registrationNo": {
+            "title": "Registrationno",
+            "type": "string"
+          },
+          "sessionId": {
+            "format": "uuid",
+            "title": "Sessionid",
+            "type": "string"
+          },
+          "source": {
+            "description": "The program the candidate submitted.",
+            "title": "Source",
+            "type": "string"
+          },
+          "studentName": {
+            "title": "Studentname",
+            "type": "string"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sessionId",
+          "questionId",
+          "studentName",
+          "registrationNo",
+          "prompt",
+          "marks",
+          "source"
+        ],
+        "title": "CodingReport",
+        "type": "object"
+      },
       "CodingRunSummary": {
         "description": "What a marking run did. Both numbers matter: \"0 marked, 30 skipped\" is\na run that found everything already done, which is a different message\nfrom \"0 marked, 0 skipped\".",
         "properties": {
@@ -4433,6 +4554,59 @@
           }
         ],
         "summary": "Cancel Exam",
+        "tags": [
+          "exams"
+        ]
+      }
+    },
+    "/api/v1/exams/{exam_id}/coding/reports": {
+      "get": {
+        "description": "Every coding answer on this exam, and how running it went.\n\nA mark of 6 out of 10 is not reviewable on its own. This is what a marker\nlooks at when a candidate disputes one, and what a faculty member checks\nbefore deciding a test case was wrong.",
+        "operationId": "listCodingReports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exam_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Exam Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CodingReport"
+                  },
+                  "title": "Response Listcodingreports",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Coding Reports",
         "tags": [
           "exams"
         ]

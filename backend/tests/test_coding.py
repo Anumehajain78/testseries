@@ -17,7 +17,9 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.models import Answer, Question, QuestionTest
+from sqlalchemy import select
+
+from app.db.models import Answer, ExamSession, Question, QuestionTest
 from app.db.session import SessionLocal
 from app.domain.sandbox import sandbox_available
 from app.main import app
@@ -350,3 +352,59 @@ class TestSayingWhetherCodeCanRunAtAll:
     def test_a_candidate_cannot_ask(self, database):
         headers = _login("aarav.mehta@northbridge.edu")
         assert client.get(f"{API}/exams/runtime/capabilities", headers=headers).status_code == 403
+
+
+class TestReviewingAMark:
+    @needs_sandbox
+    def test_a_marker_can_see_which_case_failed(self, staff, world, database):
+        """Six out of ten is not reviewable. A disputed mark needs to show the
+        case that failed rather than be argued about."""
+        marking = TestMarking()
+        question, session_id = marking._answer(
+            staff, world, "a, b = map(int, input().split())\nprint(abs(a + b))"
+        )
+        with SessionLocal() as db:
+            coding.grade_session(db, session_id)
+            exam_id = db.get(Answer, {"session_id": session_id, "question_id": question})
+            exam_id = db.execute(
+                select(ExamSession.exam_id).where(ExamSession.id == session_id)
+            ).scalar_one()
+
+        reports = client.get(f"{API}/exams/{exam_id}/coding/reports", headers=staff)
+        assert reports.status_code == 200, reports.text
+        row = reports.json()[0]
+        assert row["awardedMarks"] == 2.5
+        assert row["passed"] == 1 and row["total"] == 3
+        assert row["source"].startswith("a, b = map(int")
+        assert [c["passed"] for c in row["cases"]] == [True, False, False]
+
+    @needs_sandbox
+    def test_a_hidden_cases_output_is_still_withheld_from_the_report(
+        self, staff, world, database
+    ):
+        """The report is staff-facing, but it travels: withholding at the
+        source means no later screen can leak the key by rendering it."""
+        marking = TestMarking()
+        question, session_id = marking._answer(
+            staff, world, "a, b = map(int, input().split())\nprint(a + b)"
+        )
+        with SessionLocal() as db:
+            coding.grade_session(db, session_id)
+            exam_id = db.execute(
+                select(ExamSession.exam_id).where(ExamSession.id == session_id)
+            ).scalar_one()
+
+        row = client.get(f"{API}/exams/{exam_id}/coding/reports", headers=staff).json()[0]
+        hidden = [c for c in row["cases"] if c["hidden"]]
+        assert hidden and all(c["stdout"] == "" for c in hidden)
+
+    def test_a_candidate_cannot_read_the_reports(self, staff, world, database):
+        exam_id = make_exam(staff, world)
+        headers = _login("aarav.mehta@northbridge.edu")
+        assert client.get(f"{API}/exams/{exam_id}/coding/reports", headers=headers).status_code == 403
+
+    def test_an_exam_with_no_coding_questions_returns_nothing(self, staff, world, database):
+        exams = client.get(f"{API}/exams", headers=staff).json()["items"]
+        plain = next(e for e in exams if e["code"].startswith("CSE") or e["code"].startswith("CS"))
+        response = client.get(f"{API}/exams/{plain['id']}/coding/reports", headers=staff)
+        assert response.status_code == 200
