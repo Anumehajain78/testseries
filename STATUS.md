@@ -6,7 +6,7 @@ A plain checklist of the whole project.
 - **Half done** — partly working
 - **Not started** — not built yet
 
-**12 of 14 main phases finished.**
+**13 of 14 main phases finished.**
 
 ---
 
@@ -98,17 +98,16 @@ needs the server started with several workers — see above.
 
 ## Big things not finished
 
-Two left. Both are about the lab machine rather than the server.
+One left, and it is a machine with the right software on it rather than more work.
 
-- **Desktop exam app (Tauri)** — *written but never built.* The whole app is in `desktop/`, but this machine cannot compile it: it needs system libraries only an administrator can install. See `desktop/README.md` for the one command, and expect first-build errors.
-- **Cheating signals from the desktop app** — *blocked, and it needs a decision.* The desktop app can see a student switching away, but it has no way to ask the server which exam session the machine is showing, so it cannot report it. Heartbeats and the floor plan work; these events pile up on the machine and go nowhere. Someone has to choose how the machine learns its session.
+- **Desktop exam app (Tauri)** — *half built, half never compiled.* The part that talks to the server — signing the machine in, reporting it is alive, sending cheating signals — is built, tested, and proven against the running server. The window itself has never been compiled: it needs system libraries only an administrator can install. `desktop/README.md` has the one command. Expect errors on that first build.
+- **Cheating signals** — *now working.* The exam page tells the lab client which paper is on screen, so switching away can be reported. Checked end to end: the four signals arrive in the activity log.
 
 ---
 
 ## What to do next
 
-1. **Install the build tools and compile the desktop app.** It is written; nobody has ever built it. `desktop/README.md` has the command.
-2. **Decide how a lab machine learns which exam session it is showing.** Until then the desktop app can watch for cheating but cannot report it.
+1. **Install the build tools and compile the desktop window.** Everything else about the lab client is done and checked against a real server; the window is the piece nobody has ever built. `desktop/README.md` has the command.
 **Honest about the lock down:** the desktop app keeps the exam fullscreen, blocks the developer tools, and reports attempts to close it. It does **not** stop Alt+Tab, Ctrl+Alt+Del, killing the program, a phone on the desk, or a second screen. No software on the machine can. Invigilators still matter.
 
 ---
