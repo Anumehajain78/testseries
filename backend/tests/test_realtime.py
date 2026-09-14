@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.core.security import issue_user_tokens
 from app.main import app
-from app.schemas.enums import Role
+from app.schemas.enums import RealtimeEvent, Role
 
 API = "/api/v1"
 
@@ -161,3 +161,58 @@ class TestBrokerDegradation:
         await local.close()
 
         assert received == [{"event": "PING"}]
+
+
+class TestPublishingFromAWorkerThread:
+    """Frames have to cross from the threadpool to the event loop.
+
+    Every endpoint is synchronous and so runs in FastAPI's threadpool.
+    ``asyncio.get_running_loop()`` succeeds only *on* the loop, so a naive
+    implementation raises there and drops the frame — silently, because a
+    notification nobody receives is indistinguishable from one nobody sent.
+    That is what happened when the endpoints stopped being ``async def``:
+    realtime went quiet and only a test noticed.
+    """
+
+    def test_a_frame_published_off_the_loop_still_arrives(self):
+        import asyncio
+        from uuid import uuid4
+
+        from app.realtime import events
+
+        exam_id = uuid4()
+        seen: list[dict] = []
+
+        async def drive():
+            events.bind_loop(asyncio.get_running_loop())
+            original = events.publish
+
+            async def capture(event, exam, seq, **payload):
+                seen.append({"event": event, "exam": exam, "seq": seq})
+
+            events.publish = capture
+            try:
+                # A worker thread is exactly where a request handler runs.
+                await asyncio.to_thread(
+                    events.publish_soon, RealtimeEvent.EXAM_STARTED, exam_id, 1
+                )
+                # Let the scheduled coroutine run.
+                for _ in range(20):
+                    await asyncio.sleep(0.01)
+                    if seen:
+                        break
+            finally:
+                events.publish = original
+                events.bind_loop(None)
+
+        asyncio.run(drive())
+        assert [frame["event"] for frame in seen] == [RealtimeEvent.EXAM_STARTED]
+
+    def test_with_no_loop_bound_it_drops_rather_than_raising(self):
+        """A script or a test has nobody listening; that must not be an error."""
+        from uuid import uuid4
+
+        from app.realtime import events
+
+        events.bind_loop(None)
+        events.publish_soon(RealtimeEvent.EXAM_STARTED, uuid4(), 1)

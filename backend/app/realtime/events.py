@@ -38,20 +38,48 @@ async def publish(event: RealtimeEvent, exam_id: UUID, seq: int, **payload: Any)
     await get_broker().publish(channel_for(str(exam_id)), _frame(event, exam_id, seq, **payload))
 
 
+#: The application's event loop, captured at startup.
+#:
+#: Needed because the service layer runs in FastAPI's threadpool, not on the
+#: loop. ``asyncio.get_running_loop()`` only succeeds *on* the loop, so from a
+#: worker thread it raises and the frame would be dropped — silently, since a
+#: notification nobody receives looks exactly like one nobody sent. That is
+#: what happened when the endpoints became synchronous: every realtime frame
+#: stopped, and the monitor with it.
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+def bind_loop(loop: asyncio.AbstractEventLoop | None) -> None:
+    """Record the loop frames should be scheduled on. Called from lifespan."""
+    global _loop
+    _loop = loop
+
+
 def publish_soon(event: RealtimeEvent, exam_id: UUID, seq: int, **payload: Any) -> None:
     """Publish from synchronous code without making it wait.
 
     The service layer is sync and already holds a committed transaction; the
-    frame is a notification about work that is finished, so it is scheduled on
-    the running loop and never awaited. If there is no loop — a script, a test
-    — the frame is simply dropped, which is the correct outcome for a
+    frame is a notification about work that is finished, so it is scheduled
+    rather than awaited.
+
+    Two callers, two paths: code already on the loop schedules a task directly,
+    while code in the threadpool — which is every endpoint — hands the
+    coroutine across with ``run_coroutine_threadsafe``. With no loop at all, a
+    script or a test, the frame is dropped, which is the right outcome for a
     notification nobody is listening to.
     """
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
+        asyncio.get_running_loop().create_task(_safe(event, exam_id, seq, payload))
         return
-    loop.create_task(_safe(event, exam_id, seq, payload))
+    except RuntimeError:
+        pass
+
+    loop = _loop
+    if loop is None or loop.is_closed():
+        return
+    # Deliberately not waiting on the future: the caller is a request thread
+    # and the frame is about work already committed.
+    asyncio.run_coroutine_threadsafe(_safe(event, exam_id, seq, payload), loop)
 
 
 async def _safe(event: RealtimeEvent, exam_id: UUID, seq: int, payload: dict[str, Any]) -> None:

@@ -182,3 +182,32 @@ class TestRenewalSafety:
         """Three hours covers a long examination plus overrun and a slow
         start. Anything shorter reintroduces the failure this fixes."""
         assert get_settings().refresh_token_hours >= 3
+
+
+class TestHashingCost:
+    """The parameters are a deliberate choice, not a default.
+
+    A lab signs in within the same minute, so the cost of one hash is
+    multiplied by a room. These pin the decision so nobody quietly restores
+    the library defaults — measured, those failed 96 of 200 sign-ins.
+    """
+
+    def test_a_stored_hash_carries_its_own_parameters(self):
+        """Which is why changing them is not a migration: an older hash keeps
+        verifying under the parameters it was written with."""
+        from argon2 import PasswordHasher
+
+        from app.core.security import verify_secret
+
+        old = PasswordHasher(time_cost=3, memory_cost=65_536, parallelism=4).hash("examcontrol")
+        assert verify_secret("examcontrol", old)
+        assert not verify_secret("wrong", old)
+
+    def test_the_parameters_meet_the_published_minimum(self):
+        """OWASP's Argon2id minimum: m=19456 KiB, t=2, p=1. Below any of these
+        the choice stops being defensible."""
+        from app.core.security import _hasher
+
+        assert _hasher.memory_cost >= 19_456
+        assert _hasher.time_cost >= 2
+        assert _hasher.parallelism >= 1

@@ -149,6 +149,38 @@ async def create_cohort(
     return [row["student"]["id"] for row in created]
 
 
+def provision_lab(seats: int, run: str) -> tuple[str, str]:
+    """Make a lab big enough to seat the cohort.
+
+    There is no endpoint for this — a lab is a room, and rooms are not created
+    by an API call — so this one reaches into the database directly. It is the
+    only place that does, and it is setup rather than measurement: every call
+    the run actually times goes over the wire like a workstation's would.
+
+    It is also why this needs a database of its own.
+    """
+    from uuid import uuid4
+
+    from app.db.models import Computer, Lab
+    from app.db.session import SessionLocal
+
+    name = f"{MARKER} Hall {run}"
+    with SessionLocal() as db:
+        lab = Lab(id=uuid4(), name=name, building=f"{MARKER} Block", capacity=seats)
+        db.add(lab)
+        db.flush()
+        for position in range(1, seats + 1):
+            db.add(Computer(
+                id=uuid4(),
+                lab_id=lab.id,
+                machine_id=f"{MARKER}-{run}-PC-{position:03d}",
+                position=position,
+                hostname=f"loadtest-{run}-{position:03d}",
+            ))
+        db.commit()
+        return str(lab.id), name
+
+
 async def build_exam(
     client: httpx.AsyncClient, admin: dict, student_ids: list[str], lab_id: str, questions: int, run: str
 ) -> str:
@@ -242,7 +274,9 @@ async def candidate_run(
                 )
             return True
         except Exception as exc:  # noqa: BLE001 - every failure is a result
-            print(f"  ! {email}: {exc}", file=sys.stderr)
+            # The type matters: a timeout and a refusal are different findings,
+            # and httpx timeouts carry an empty message.
+            print(f"  ! {email}: {type(exc).__name__}: {exc}".rstrip(": "), file=sys.stderr)
             return False
 
 
@@ -282,9 +316,18 @@ async def main() -> int:
         if not labs:
             print("no labs: seed the database first", file=sys.stderr)
             return 1
-        lab = max(labs, key=lambda item: item.get("capacity", 0))
 
         run = f"{int(time.time()) % 100_000:05d}"
+
+        # Capacity is enforced on the server and cannot be edited away, so the
+        # room has to be real before the cohort can sit in it.
+        roomy = [lab for lab in labs if lab.get("capacity", 0) >= args.candidates]
+        if roomy:
+            lab_id, lab_name = min(roomy, key=lambda item: item["capacity"])["id"], min(roomy, key=lambda item: item["capacity"])["name"]
+        else:
+            lab_id, lab_name = provision_lab(args.candidates, run)
+            print(f"no seeded lab seats {args.candidates}; built {lab_name}")
+
         print(f"creating {args.candidates} candidates (run {run})")
         passwords: dict[str, str] = {}
         student_ids = await create_cohort(client, admin, args.candidates, run, passwords)
@@ -293,8 +336,8 @@ async def main() -> int:
         if not student_ids:
             return 1
 
-        print(f"creating and starting the exam in {lab['name']}")
-        exam_id = await build_exam(client, admin, student_ids, lab["id"], args.questions, run)
+        print(f"creating and starting the exam in {lab_name}")
+        exam_id = await build_exam(client, admin, student_ids, lab_id, args.questions, run)
 
         print(f"releasing {len(student_ids)} candidates at once…")
         gate = asyncio.Event()

@@ -64,6 +64,12 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | **Works** | **Export report.** Downloads the released marks as a spreadsheet. Withheld marks are left out rather than written as zero. |
 | **Works** | **Run health check.** Reads what each workstation last reported and says, lab by lab, how many are online, how many have gone quiet, and how many have never reported at all. No button on the screens is fake any more. |
 
+**One thing to know about running it for real:** start the server with several
+workers — `uvicorn app.main:app --workers 8`. One worker serves requests one at
+a time whatever else is tuned, because each request is mostly Python work. With
+one worker, 200 candidates signing in together gave 104 sign-ins and 96
+failures; with eight, all 200 got in, the slowest in about three seconds.
+
 **One thing to know about the health check:** the server cannot ring a computer — computers report in, and the server remembers when each one last did. So the check reads those reports rather than pinging anything, and the screen says so. A machine nobody has set up yet is listed separately from one that was working and stopped, because those need different people.
 
 **One thing to know about who may add students:** only the exam cell administrator can add, edit or import candidates. Teachers can see the list but not change it. Before, a teacher was blocked from pasting a roster but could still add the same people one form at a time — the buttons and the server now agree.
@@ -71,6 +77,13 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 **One thing to know about logins:** when a login is renewed, the old renewal token is not cancelled — it keeps working until it runs out on its own. Cancelling it needs a bit more work on the server. Worth doing before real exams.
 
 **One thing to know about speed:** the app used to reload everything after every change — 18 requests to learn that one exam's status moved. Now a change to one assessment re-reads only that assessment: 4 requests instead of 18. This matters most on the live monitor, which refreshes every few seconds while an exam is running. Creating a new assessment still reloads everything, because a new one has to appear in the list.
+
+**How many students it holds:** measured, not guessed. Sixty candidates in one
+lab all signing in at the same second: everyone got in, the slowest sign-in
+took about a second, and the whole group was answering within six. Two hundred
+at once: everyone got in, slowest about three seconds, whole group answering
+within fifteen. Saving an answer stayed under half a second throughout. This
+needs the server started with several workers — see above.
 
 ---
 
@@ -81,8 +94,7 @@ Always planned for later. These are the difference between a working web app and
 - **Desktop exam app (Tauri)** — the real lock down. A browser alone cannot stop Alt+Tab.
 - **Cheating signals from the desktop app** — the server records them now, but only a desktop app can actually notice a student switching away.
 - **Coding questions** — running student code safely, with time and memory limits.
-- **Load testing** — 60 students in one lab, then 200 across labs.
-- **Install on the college network.**
+- **Install on the college network** — putting it on the LAN so real lab machines reach it.
 
 ---
 

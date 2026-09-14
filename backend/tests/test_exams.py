@@ -94,6 +94,41 @@ class TestAdministratorAuthoring:
         response = client.post(f"{API}/exams", headers=faculty, json=_payload(lab_id))
         assert response.status_code == 201, response.text
 
+    def test_an_administrator_can_schedule_and_start_one(self, admin, lab_id):
+        """The one that mattered: start happens with a room already waiting.
+
+        ``exams.started_by`` references faculty too, so fixing only creation
+        moved the 500 from the quiet action to the loudest one.
+        """
+        students = client.get(f"{API}/students?limit=3", headers=admin).json()["items"]
+        payload = _payload(lab_id) | {"studentIds": [s["id"] for s in students]}
+        exam = client.post(f"{API}/exams", headers=admin, json=payload).json()
+
+        scheduled = client.post(f"{API}/exams/{exam['id']}/schedule", headers=admin, json={})
+        assert scheduled.status_code == 200, scheduled.text
+
+        started = client.post(
+            f"{API}/exams/{exam['id']}/start",
+            headers=admin,
+            json={"idempotencyKey": f"admin-start-{exam['id']}"},
+        )
+        assert started.status_code == 200, started.text
+        assert started.json()["startsAt"]
+
+    def test_an_administrator_can_edit_a_draft(self, admin, lab_id):
+        """Editing authors questions, and those carry an owner."""
+        exam = client.post(f"{API}/exams", headers=admin, json=_payload(lab_id)).json()
+        response = client.patch(f"{API}/exams/{exam['id']}", headers=admin, json={
+            "title": "Edited by the exam cell",
+            "questions": [{
+                "type": "mcq",
+                "prompt": "Authored during an edit?",
+                "marks": 1,
+                "options": [{"body": "Yes", "isCorrect": True}, {"body": "No", "isCorrect": False}],
+            }],
+        })
+        assert response.status_code == 200, response.text
+
     def test_a_candidate_still_cannot_author_one(self, lab_id, database):
         headers = _login("aarav.mehta@northbridge.edu")
         assert headers is not None

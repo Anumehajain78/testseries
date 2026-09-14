@@ -7,6 +7,9 @@ becomes impossible rather than merely discouraged.
 """
 
 import asyncio
+import logging
+
+import anyio
 from contextlib import asynccontextmanager, suppress
 from typing import Any
 
@@ -15,6 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes_directory import audit_router, auth_router, directory_router
 from app.core.config import get_settings
+from app.db.session import MAX_CONCURRENT_REQUESTS, engine
+from app.realtime.events import bind_loop
 from app.realtime.broker import Broker, set_broker
 from app.services.sweep import sweep_loop
 from app.api.routes_exams import router as exams_router
@@ -66,6 +71,25 @@ async def lifespan(_: FastAPI):
     if the tab is still open and the machine still connected, neither of which
     can be assumed of a candidate whose network just dropped.
     """
+    # Endpoints are synchronous and run in this threadpool, and every one of
+    # them wants a database connection. Admitting more requests than the pool
+    # can serve does not make the server faster; it makes the extra ones wait
+    # on the pool and then fail.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = MAX_CONCURRENT_REQUESTS
+    # Printed rather than assumed: these three numbers have to agree, and when
+    # they did not the symptom was sign-ins failing under load, which is not a
+    # symptom that names its own cause.
+    pool = engine.pool
+    logging.getLogger("uvicorn.error").info(
+        "concurrency: %d requests, %d database connections",
+        MAX_CONCURRENT_REQUESTS,
+        pool.size() + pool._max_overflow,
+    )
+
+    # Frames are published from the threadpool, which cannot find the loop on
+    # its own.
+    bind_loop(asyncio.get_running_loop())
+
     instance = Broker(get_settings().redis_url)
     await instance.connect()
     set_broker(instance)
@@ -79,6 +103,9 @@ async def lifespan(_: FastAPI):
             await task
         await instance.close()
         set_broker(None)
+        # Released with the broker: a frame scheduled onto a loop that is
+        # shutting down has nowhere to go.
+        bind_loop(None)
 
 
 app.router.lifespan_context = lifespan

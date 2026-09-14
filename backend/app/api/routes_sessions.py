@@ -45,19 +45,19 @@ WRITE_REFUSED = {
 
 
 @router.get("/me/exams", response_model=list[ExamSummary], operation_id="listMyExams")
-async def list_my_exams(db: DbSession, principal: Candidate) -> list[ExamSummary]:
+def list_my_exams(db: DbSession, principal: Candidate) -> list[ExamSummary]:
     """Assessments the authenticated candidate is enrolled in."""
     return queries.list_my_exams(db, UUID(principal.subject_id))
 
 
 @router.get("/me/sessions", response_model=list[SessionRow], operation_id="listMySessions")
-async def list_my_sessions(db: DbSession, principal: Candidate) -> list[SessionRow]:
+def list_my_sessions(db: DbSession, principal: Candidate) -> list[SessionRow]:
     """This candidate's own sessions, so they can find the paper they sit."""
     return queries.list_my_sessions(db, UUID(principal.subject_id))
 
 
 @router.post("/sessions/{session_id}/checkin", response_model=SessionPaper, operation_id="checkInSession")
-async def check_in(
+def check_in(
     session_id: UUID, payload: CheckInRequest, db: DbSession, principal: CurrentPrincipal
 ) -> SessionPaper:
     """Enters the waiting room and materializes this candidate's paper.
@@ -70,7 +70,7 @@ async def check_in(
 
 
 @router.get("/sessions/{session_id}", response_model=SessionPaper, operation_id="getSessionPaper")
-async def get_session_paper(
+def get_session_paper(
     session_id: UUID, db: DbSession, principal: CurrentPrincipal
 ) -> SessionPaper:
     """The paper as ordered for this candidate. Carries no answer keys."""
@@ -78,7 +78,7 @@ async def get_session_paper(
 
 
 @router.get("/sessions/{session_id}/state", response_model=SessionState, operation_id="getSessionState")
-async def get_session_state(
+def get_session_state(
     session_id: UUID, db: DbSession, principal: CurrentPrincipal
 ) -> SessionState:
     """Reconnect recovery.
@@ -96,7 +96,7 @@ async def get_session_state(
     responses=WRITE_REFUSED,
     operation_id="saveAnswer",
 )
-async def save_answer(
+def save_answer(
     session_id: UUID,
     question_id: UUID,
     payload: SaveAnswerRequest,
@@ -119,7 +119,7 @@ async def save_answer(
     responses=WRITE_REFUSED,
     operation_id="toggleFlag",
 )
-async def toggle_flag(
+def toggle_flag(
     session_id: UUID, question_id: UUID, db: DbSession, principal: CurrentPrincipal
 ) -> SaveAnswerResponse:
     """Toggles the review flag for one question."""
@@ -132,7 +132,7 @@ async def toggle_flag(
     responses=WRITE_REFUSED,
     operation_id="submitSession",
 )
-async def submit_session(
+def submit_session(
     session_id: UUID, payload: SubmitRequest, db: DbSession, principal: CurrentPrincipal
 ) -> SubmissionReceipt:
     """Final submission.
@@ -144,7 +144,7 @@ async def submit_session(
 
 
 @router.get("/sessions/{session_id}/detail", response_model=SessionDetail, operation_id="getSessionDetail")
-async def get_session_detail(session_id: UUID, db: DbSession, _: Staff) -> SessionDetail:
+def get_session_detail(session_id: UUID, db: DbSession, _: Staff) -> SessionDetail:
     """Invigilator drill-down: identity, machine, timings, and event timeline.
 
     Faculty scope - this is the monitor's detail drawer, not a candidate view.
@@ -160,7 +160,7 @@ async def get_session_detail(session_id: UUID, db: DbSession, _: Staff) -> Sessi
     status_code=status.HTTP_202_ACCEPTED,
     operation_id="reportSessionEvent",
 )
-async def report_session_event(
+def report_session_event(
     session_id: UUID, payload: SessionEventRequest, db: DbSession, principal: Machine
 ) -> dict[str, str]:
     """Invigilation signal from the lab client. Machine subjects only.
@@ -187,7 +187,7 @@ async def report_session_event(
     status_code=status.HTTP_202_ACCEPTED,
     operation_id="postHeartbeat",
 )
-async def post_heartbeat(
+def post_heartbeat(
     machine_id: str, payload: HeartbeatRequest, db: DbSession, principal: Machine
 ) -> dict[str, str]:
     """Liveness ping from a workstation. Machine subjects only.

@@ -47,7 +47,7 @@ audit_router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 @auth_router.post("/login", response_model=TokenPair, operation_id="login")
-async def login(payload: LoginRequest, db: DbSession) -> TokenPair:
+def login(payload: LoginRequest, db: DbSession) -> TokenPair:
     """Human sign-in. The response carries ``server_time`` so the client can
     establish its clock offset before anything is timed."""
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
@@ -66,7 +66,7 @@ async def login(payload: LoginRequest, db: DbSession) -> TokenPair:
 
 
 @auth_router.post("/refresh", response_model=TokenPair, operation_id="refreshToken")
-async def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
+def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
     """Exchange a refresh token for a fresh pair.
 
     This exists so nobody is signed out during an examination. Access tokens
@@ -125,12 +125,12 @@ def _tokens_for(db: DbSession, user: User) -> TokenPair:
 
 
 @auth_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, operation_id="logout")
-async def logout() -> None:
+def logout() -> None:
     return None
 
 
 @auth_router.post("/machine/enrol", response_model=MachineCredential, operation_id="enrolMachine")
-async def enrol_machine(payload: MachineEnrolRequest, db: DbSession) -> MachineCredential:
+def enrol_machine(payload: MachineEnrolRequest, db: DbSession) -> MachineCredential:
     """Claim a workstation using its lab's enrolment token.
 
     Unauthenticated on purpose: a machine being set up has no credential yet,
@@ -141,7 +141,7 @@ async def enrol_machine(payload: MachineEnrolRequest, db: DbSession) -> MachineC
 
 
 @auth_router.post("/machine/token", response_model=MachineToken, operation_id="machineToken")
-async def machine_token(payload: MachineTokenRequest, db: DbSession) -> MachineToken:
+def machine_token(payload: MachineTokenRequest, db: DbSession) -> MachineToken:
     """Exchange a machine credential for a short-lived token.
 
     The token carries ``subject_type=machine``, which authorization uses to
@@ -151,7 +151,7 @@ async def machine_token(payload: MachineTokenRequest, db: DbSession) -> MachineT
 
 
 @auth_router.get("/me", response_model=Principal, operation_id="getCurrentPrincipal")
-async def me(principal: CurrentPrincipal) -> Principal:
+def me(principal: CurrentPrincipal) -> Principal:
     return principal
 
 
@@ -161,7 +161,7 @@ async def me(principal: CurrentPrincipal) -> Principal:
 
 
 @directory_router.get("/students", response_model=Page[StudentOut], operation_id="listStudents")
-async def list_students(
+def list_students(
     db: DbSession,
     _: Staff,
     search: str | None = Query(default=None, description="Matches name or registration number."),
@@ -178,7 +178,7 @@ async def list_students(
 @directory_router.post(
     "/students", response_model=NewStudent, status_code=status.HTTP_201_CREATED, operation_id="createStudent"
 )
-async def create_student(payload: StudentCreate, db: DbSession, _: Admin) -> NewStudent:
+def create_student(payload: StudentCreate, db: DbSession, _: Admin) -> NewStudent:
     """Add one candidate. The password is shown here and nowhere else.
 
     Administrative, like the bulk import below. Allowing faculty to add
@@ -189,7 +189,7 @@ async def create_student(payload: StudentCreate, db: DbSession, _: Admin) -> New
 
 
 @directory_router.patch("/students/{student_id}", response_model=StudentOut, operation_id="updateStudent")
-async def update_student(
+def update_student(
     student_id: UUID, payload: StudentUpdate, db: DbSession, _: Admin
 ) -> StudentOut:
     """Edit a candidate, including blocking them from signing in."""
@@ -199,7 +199,7 @@ async def update_student(
 @directory_router.post(
     "/students/import", response_model=ImportSummary, operation_id="importRoster"
 )
-async def import_roster(payload: RosterImportRequest, db: DbSession, _: Admin) -> ImportSummary:
+def import_roster(payload: RosterImportRequest, db: DbSession, _: Admin) -> ImportSummary:
     """Create candidates from a spreadsheet export.
 
     Administrators only, and partial by design: rows that cannot be taken are
@@ -209,7 +209,7 @@ async def import_roster(payload: RosterImportRequest, db: DbSession, _: Admin) -
 
 
 @directory_router.get("/labs", response_model=list[LabOut], operation_id="listLabs")
-async def list_labs(db: DbSession, _: Staff) -> list[LabOut]:
+def list_labs(db: DbSession, _: Staff) -> list[LabOut]:
     return queries.list_labs(db)
 
 
@@ -218,7 +218,7 @@ async def list_labs(db: DbSession, _: Staff) -> list[LabOut]:
     response_model=EnrolmentToken,
     operation_id="mintLabEnrolmentToken",
 )
-async def mint_enrolment_token(lab_id: UUID, db: DbSession, principal: Admin) -> EnrolmentToken:
+def mint_enrolment_token(lab_id: UUID, db: DbSession, principal: Admin) -> EnrolmentToken:
     """Mint an enrolment token for one laboratory.
 
     Administrators only, and shown in the clear exactly once — it is stored
@@ -235,7 +235,7 @@ async def mint_enrolment_token(lab_id: UUID, db: DbSession, principal: Admin) ->
 
 
 @directory_router.get("/labs/{lab_id}/computers", response_model=list[ComputerOut], operation_id="listLabComputers")
-async def list_lab_computers(lab_id: UUID, db: DbSession, _: Staff) -> list[ComputerOut]:
+def list_lab_computers(lab_id: UUID, db: DbSession, _: Staff) -> list[ComputerOut]:
     """Workstations and their derived liveness.
 
     No candidate is attached here: seating belongs to the session, because a
@@ -250,7 +250,7 @@ async def list_lab_computers(lab_id: UUID, db: DbSession, _: Staff) -> list[Comp
 
 
 @audit_router.get("", response_model=Page[AuditEventOut], operation_id="listAuditEvents")
-async def list_audit_events(
+def list_audit_events(
     db: DbSession,
     _: Staff,
     exam_id: UUID | None = Query(default=None, alias="examId"),

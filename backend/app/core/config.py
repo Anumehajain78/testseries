@@ -34,6 +34,24 @@ class Settings(BaseSettings):
     )
     database_echo: bool = False
 
+    # Concurrency, per worker process.
+    #
+    # A request is CPU-bound — ORM, serialisation, and a password hash on
+    # sign-in — so one process serves them one at a time whatever the
+    # threadpool is set to. Throughput comes from workers; these size what each
+    # worker may hold.
+    #
+    # The constraint to respect when changing them:
+    #     workers x (pool_size + max_overflow) <= postgres max_connections
+    # docker-compose raises that ceiling to 300, which carries 8 workers at
+    # these defaults with room to spare.
+    db_pool_size: int = Field(default=20, ge=1, le=200)
+    db_max_overflow: int = Field(default=15, ge=0, le=200)
+    #: Requests one worker will run at once. Below the pool maximum on purpose:
+    #: the session dependency and the endpoint run as separate threadpool
+    #: tasks, so a request can hold a connection while waiting for a thread.
+    max_concurrent_requests: int = Field(default=24, ge=1, le=512)
+
     jwt_secret: str = DEV_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = Field(default=30, ge=1, le=720)

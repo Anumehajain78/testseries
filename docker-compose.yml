@@ -21,12 +21,24 @@ services:
       # Deterministic collation, so ORDER BY on candidate names does not depend
       # on the host's locale.
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    # Postgres allows 100 connections out of the box. A lab of sixty arriving
+    # at once, across more than one API worker, reaches that — and the symptom
+    # is not a slow page: the request waits on the pool and then fails, which
+    # for a candidate is a sign-in that does not work.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
     ports:
       # Not 5432: a machine may already run Postgres there, and a dev database
       # quietly binding the default port is a bad surprise. Overridable because
       # 5433 collides too once you have more than one project on the go —
       # export EXAM_DB_PORT and set EXAM_DATABASE_URL to match.
-      - "${EXAM_DB_PORT:-5433}:5432"
+      # 5433 and 5434 are taken by other projects on this machine, so the
+      # default is 5435 — the same port backend/.env.example carries. A default
+      # that disagrees with the application's own configuration is a setup trap
+      # rather than a default.
+      - "${EXAM_DB_PORT:-5435}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

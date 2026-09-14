@@ -117,13 +117,18 @@ def _bump_seq(exam: Exam) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _authoring_record(db: Session, actor_id: UUID, department: str) -> None:
-    """Make sure whoever is authoring this exam can be named as its author.
+def _staff_record(db: Session, actor_id: UUID, department: str) -> None:
+    """Make sure whoever is acting can be named in the record of it.
 
-    ``exams.created_by`` and ``questions.owner_id`` both point at ``faculty``,
-    but the route admits any staff principal — so an exam cell administrator
-    creating an assessment hit a foreign key violation and got a 500. They are
-    allowed to do it; the record of who did simply had nowhere to live.
+    Four columns point at ``faculty`` — ``exams.created_by``,
+    ``exams.started_by``, ``questions.owner_id`` and ``labs.invigilator_id`` —
+    but the routes admit any staff principal, and an exam cell administrator
+    has no row there. Every one of those writes was a foreign key violation
+    reaching them as a 500.
+
+    Starting an exam is the one that mattered most: it happens with a room full
+    of candidates already waiting, and it failed for exactly the account a
+    college would use to do it.
 
     Written here rather than in the seed because it has to hold for an
     administrator the college adds later, not only for the one seeded.
@@ -138,7 +143,7 @@ def _authoring_record(db: Session, actor_id: UUID, department: str) -> None:
 
 
 def create_exam(db: Session, payload: ExamCreate, *, actor_id: UUID, actor_label: str):
-    _authoring_record(db, actor_id, payload.department)
+    _staff_record(db, actor_id, payload.department)
     exam = Exam(
         id=uuid4(),
         code=payload.code,
@@ -207,6 +212,7 @@ def update_exam(db: Session, exam_id: UUID, payload, *, actor_id: UUID, actor_la
     seating and the window they were promised.
     """
     exam = _load(db, exam_id)
+    _staff_record(db, actor_id, exam.department)
     if exam.status is not ExamStatus.DRAFT:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -372,6 +378,8 @@ def start_exam(
         assert_exam_move(exam.status, ExamStatus.LIVE)
     except IllegalTransition as exc:
         raise _conflict(exc) from exc
+
+    _staff_record(db, actor_id, exam.department)
 
     starts_at, ends_at = exam_window(exam.duration_minutes)
     exam.starts_at = starts_at
