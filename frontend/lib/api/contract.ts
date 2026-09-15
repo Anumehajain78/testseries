@@ -54,6 +54,16 @@ export type MarkingItemDto = Schemas["MarkingItem"];
 export type NewStudentDto = Schemas["NewStudent"];
 export type ImportSummaryDto = Schemas["ImportSummary"];
 export type TokenPairDto = Schemas["TokenPair"];
+/** Changing your own password: the current one is required, because being
+ *  signed in on a lab machine is no evidence of who is at the keyboard. */
+export type PasswordChangeRequestDto = Schemas["PasswordChangeRequest"];
+/** What the change did beyond succeeding — the sign-ins it revoked, this one
+ *  among them. */
+export type PasswordChangedDto = Schemas["PasswordChanged"];
+/** A candidate's replacement password. The same shape as a newly created
+ *  candidate's, and deliberately not the same type: this one was not just
+ *  created, and it carries the count of sessions the reset threw out. */
+export type PasswordResetDto = Schemas["PasswordReset"];
 export type AnswerValueDto = Schemas["SaveAnswerRequest"]["value"];
 
 export type ServerExamStatus = Schemas["ExamStatus"];

@@ -233,3 +233,16 @@ tr.is-withheld td { color: var(--muted); }tr.is-withheld .table-title { color: v
 .marking-card.is-remarking { border-color: color-mix(in srgb, var(--blue-600) 35%, var(--border)); }
 .case-summary.is-remarking { align-items: flex-start; color: var(--blue-600); font-weight: 500; line-height: 1.6; }
 .case-summary.is-remarking svg { flex: 0 0 auto; margin-top: 2px; }
+/* Passwords: issued once over a counter, and replaced by their holder after.
+   Amber rather than red, deliberately — what these notices describe is the
+   cost of a correct action, not a mistake, and a dialog that shouts before
+   anything has been done teaches people to click straight through it. */
+.reset-warning, .password-warning { display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 14px; border: 1px solid var(--amber-600); border-radius: 8px; background: var(--amber-100); color: #6d4508; font-size: 11px; line-height: 1.65; text-align: left; }
+.reset-warning svg, .password-warning svg { flex: 0 0 auto; margin-top: 1px; color: var(--amber-600); }
+.reset-warning strong { color: var(--navy-900); }
+.password-done { display: grid; gap: 10px; text-align: left; }
+.password-done p:first-child { margin: 0; color: var(--navy-900); font-size: 12px; font-weight: 700; line-height: 1.65; }
+.password-note { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; text-align: left; }
+/* Quiet, and last in the row. Resetting a candidate's password is the rarest
+   thing anyone does to one, and it must not read as the row's own content. */
+.row-action { min-height: 32px; padding: 0 11px; font-size: 11px; }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterAuditEvents, filterMonitorRows, type MonitorRow } from "./selectors";
-import type { AuditEvent, ConnectionStatus, StudentExamStatus } from "./types";
+import { examInProgressFor, filterAuditEvents, filterMonitorRows, type MonitorRow } from "./selectors";
+import type { AuditEvent, ConnectionStatus, ExamSession, StudentExamStatus, Test } from "./types";
 
 function row(
   id: string,
@@ -85,5 +85,57 @@ describe("filterAuditEvents (Req 11.4)", () => {
 
   it("returns only exam-category events", () => {
     expect(filterAuditEvents(audits, "exam").map((e) => e.id)).toEqual(["3", "4"]);
+  });
+});
+
+function seated(studentId: string, testId: string, examStatus: StudentExamStatus): ExamSession {
+  return { testId, studentId, computerId: `pc-${studentId}`, connection: "online", examStatus, warnings: 0, activity: [] };
+}
+
+function exam(id: string, status: Test["status"]): Test {
+  return {
+    id,
+    title: `Exam ${id}`,
+    code: id.toUpperCase(),
+    course: "CS",
+    department: "CSE",
+    durationMinutes: 60,
+    totalMarks: 50,
+    scheduledAt: "2026-09-15T04:00:00.000Z",
+    status,
+    labId: "lab-1",
+    assignedStudentIds: [],
+    instructions: [],
+    questions: [],
+    config: { questionsPerStudent: 0, randomizeQuestions: false, randomizeOptions: false, allowNavigation: true, autoSubmitOnExpiry: true },
+  };
+}
+
+describe("examInProgressFor", () => {
+  const tests = [exam("t1", "live"), exam("t2", "completed"), exam("t3", "scheduled")];
+
+  it("finds the live paper a candidate is part-way through", () => {
+    const found = examInProgressFor("s1", [seated("s1", "t1", "in-progress")], tests);
+    expect(found?.id).toBe("t1");
+  });
+
+  it("counts a candidate who has checked in and is waiting to start", () => {
+    // They are at a workstation with no password slip. Being signed out before
+    // the exam starts leaves them just as stuck as being signed out mid-paper.
+    expect(examInProgressFor("s1", [seated("s1", "t1", "ready")], tests)?.id).toBe("t1");
+  });
+
+  it("ignores a paper that has already been handed in", () => {
+    expect(examInProgressFor("s1", [seated("s1", "t1", "submitted")], tests)).toBeUndefined();
+  });
+
+  it("ignores a session on an exam that is not running", () => {
+    // A scheduled exam has nobody in a hall yet, so there is no paper for a
+    // reset to interrupt and the warning must not claim there is.
+    expect(examInProgressFor("s1", [seated("s1", "t3", "ready")], tests)).toBeUndefined();
+  });
+
+  it("does not report somebody else's exam", () => {
+    expect(examInProgressFor("s2", [seated("s1", "t1", "in-progress")], tests)).toBeUndefined();
   });
 });

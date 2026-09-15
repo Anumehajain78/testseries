@@ -7,10 +7,10 @@ import { useExam } from "@/app/providers";
 import { formatDate, formatDateTime, formatDuration, formatScore, formatTime, initials, percentage, statusLabel } from "@/lib/format";
 import type { AuditSeverity, CodingLanguage, Computer, ConnectionStatus, ExamSession, ExamState, ExamStatus, Lab, NewTestInput, Question, QuestionType, Result, Student, StudentExamStatus, Test } from "@/lib/types";
 import { authoredTestCase, blankTestCase, builderTestCase, testCaseProblem, type BuilderTestCase } from "@/lib/test-cases";
-import { buildMonitorRows, computeLabOccupancy, filterAuditEvents, summarizeMonitorRows, type AuditFilter } from "@/lib/selectors";
+import { buildMonitorRows, computeLabOccupancy, examInProgressFor, filterAuditEvents, summarizeMonitorRows, type AuditFilter } from "@/lib/selectors";
 import { resultsFileName, resultsToCsv } from "@/lib/export";
 import { EXAM_STATUS_LABEL, examBadgeTone, examStatusTone } from "@/lib/status";
-import { AddStudentDialog, ImportRosterDialog } from "./roster";
+import { AddStudentDialog, ImportRosterDialog, ResetPasswordDialog } from "./roster";
 import { CodingRunPanel } from "./coding-reports";
 import { HiddenCaseCount, TestCaseFields } from "./test-cases";
 import { Icon } from "./icons";
@@ -569,8 +569,11 @@ function buildStudentRows(students: Student[], computers: Computer[], labs: Lab[
 }
 
 // Reusable table listing candidate roll, name, branch, year, status, and lab (Req 8.1, 19.1).
-export function StudentTable({ rows }: { rows: StudentRow[] }) {
-  return <TableShell caption="Registered candidates"><thead><tr><th>Roll number</th><th>Student</th><th>Branch</th><th>Year</th><th>Section</th><th>Status</th><th>Assigned lab</th></tr></thead><tbody>{rows.map(({ student, branch, labName }) => <tr key={student.id}>
+// `onResetPassword` is optional and the column follows it, so faculty — who
+// may read the register but not write to it — are not shown a control the
+// server would refuse.
+export function StudentTable({ rows, onResetPassword }: { rows: StudentRow[]; onResetPassword?: (student: Student) => void }) {
+  return <TableShell caption="Registered candidates"><thead><tr><th>Roll number</th><th>Student</th><th>Branch</th><th>Year</th><th>Section</th><th>Status</th><th>Assigned lab</th>{onResetPassword && <th>Sign-in</th>}</tr></thead><tbody>{rows.map(({ student, branch, labName }) => <tr key={student.id}>
     <td><strong>{student.registrationNo}</strong></td>
     <td><div className="person-cell"><span className="avatar">{initials(student.name)}</span><div><strong>{student.name}</strong><small>{student.email}</small></div></div></td>
     <td>{branch}</td>
@@ -578,6 +581,7 @@ export function StudentTable({ rows }: { rows: StudentRow[] }) {
     <td>{student.section}</td>
     <td><Badge tone={student.status === "active" ? "success" : "danger"}>{student.status === "active" ? "Eligible" : "Blocked"}</Badge></td>
     <td>{labName}</td>
+    {onResetPassword && <td><Button tone="ghost" icon="reset" className="row-action" type="button" onClick={() => onResetPassword(student)}>Reset password</Button></td>}
   </tr>)}</tbody></TableShell>;
 }
 
@@ -590,6 +594,7 @@ export function StudentsScreen() {
 
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [resetting, setResetting] = useState<Student | null>(null);
   const { refreshFromServer, currentUser } = useExam();
 
   // Faculty read the roster; only the exam cell writes to it. Showing them
@@ -615,6 +620,15 @@ export function StudentsScreen() {
     {canEditRegister && <>
       <AddStudentDialog open={adding} onClose={() => setAdding(false)} onAdded={() => { void refreshFromServer(); }}/>
       <ImportRosterDialog open={importing} onClose={() => setImporting(false)} onImported={() => { void refreshFromServer(); }}/>
+      {/* The exam this candidate is part-way through, so the warning can name
+          the paper the reset is about to take them out of rather than leave it
+          as a possibility. */}
+      <ResetPasswordDialog
+        student={resetting}
+        sitting={resetting ? examInProgressFor(resetting.id, state.sessions, state.tests) : undefined}
+        onClose={() => setResetting(null)}
+        onReset={() => { void refreshFromServer(); }}
+      />
     </>}
     <div className="toolbar split">
       <div className="search-box wide"><Icon name="search"/><input value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search students by name or roll number" placeholder="Search by name or roll number"/></div>
@@ -625,7 +639,7 @@ export function StudentsScreen() {
         <Badge tone="info">{filtered.length} candidates</Badge>
       </div>
     </div>
-    <Card className="table-card">{filtered.length ? <StudentTable rows={filtered}/> : <EmptyState icon="users" title="No matching students" description="Adjust the search text or clear the year, branch, and section filters to see more candidates."/>}</Card>
+    <Card className="table-card">{filtered.length ? <StudentTable rows={filtered} onResetPassword={canEditRegister ? setResetting : undefined}/> : <EmptyState icon="users" title="No matching students" description="Adjust the search text or clear the year, branch, and section filters to see more candidates."/>}</Card>
   </>;
 }
 

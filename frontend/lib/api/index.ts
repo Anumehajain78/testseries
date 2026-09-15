@@ -3,12 +3,13 @@ import type { ExamApi } from "./types";
 
 export type { ExamApi, CreateExamResult, SubmitExamResult, SubmitMode } from "./types";
 export { examStore, emptyExamState, type StoreSnapshot } from "./store";
-export type { CodingCaseReportDto, CodingReportDto, CodingRunSummaryDto, MarkingItemDto, NewStudentDto, ImportSummaryDto, RuntimeCapabilitiesDto, TestCaseCorrectionDto, TestCaseCorrectionResultDto } from "./contract";
+export type { CodingCaseReportDto, CodingReportDto, CodingRunSummaryDto, MarkingItemDto, NewStudentDto, ImportSummaryDto, PasswordChangedDto, PasswordResetDto, RuntimeCapabilitiesDto, TestCaseCorrectionDto, TestCaseCorrectionResultDto } from "./contract";
 export { watchExam, type MonitorSocket } from "./realtime";
 export {
   ApiError,
   candidateSessionId,
   candidateWrites,
+  changePassword,
   coding,
   directory,
   loadExamSlice, loadStateFromServer,

@@ -1,6 +1,7 @@
 import { apiBaseUrl } from "./endpoint";
 import type { AnswerValue, AuditEvent, CodingLanguage, CodingTestCase, Computer, ExamSession, ExamState, Lab, Question, Result, Student, Test } from "@/lib/types";
 import { toConnection, toExamStatus, toSessionStatus } from "./contract";
+import { SIGN_IN_REFUSAL } from "@/lib/passwords";
 import type {
   AuditEventDto,
   CodingReportDto,
@@ -21,6 +22,8 @@ import type {
   ResultsPageDto,
   StudentTestCaseDto,
   TestCaseDto,
+  PasswordChangedDto,
+  PasswordResetDto,
   RuntimeCapabilitiesDto,
   SessionRowDto,
   StudentDto,
@@ -219,6 +222,20 @@ export const directory = {
   updateStudent: (studentId: string, body: unknown) =>
     request<StudentDto>(`/students/${studentId}`, { method: "PATCH", body: JSON.stringify(body) }),
   importRoster: (csv: string) => post<ImportSummaryDto>("/students/import", { csv }),
+  /**
+   * Issue a candidate a new password, readable exactly once.
+   *
+   * The exam-morning fix for somebody who has arrived without their slip.
+   * There is no body to send: the password is the server's to generate, and a
+   * console that could choose one would be a console that could set every
+   * candidate's password to the same thing.
+   *
+   * Ends every session the candidate holds, including a paper open in front of
+   * them — which is why the screen asks before calling this, and why the count
+   * of what it ended comes back to be shown afterwards.
+   */
+  resetStudentPassword: (studentId: string) =>
+    post<PasswordResetDto>(`/students/${studentId}/password`),
 };
 
 /**
@@ -315,6 +332,22 @@ export function signOut(): void {
   });
 }
 
+/**
+ * Change your own password.
+ *
+ * Goes through `request` rather than a bare fetch so that an access token
+ * which merely aged out is renewed and the call repeated. That distinction is
+ * the whole point here: without it an expired token would come back as a 401
+ * and the screen would tell somebody their current password was wrong when it
+ * was not, and they would change a password that did not need changing.
+ *
+ * A 401 that survives the renewal really is the current password being wrong.
+ * Every session the account has ends on success, this one included, so the
+ * caller has to send the person back to sign in afterwards.
+ */
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  post<PasswordChangedDto>("/auth/password", { currentPassword, newPassword });
+
 export async function signIn(email: string, password: string): Promise<TokenPairDto> {
   const response = await fetch(`${apiBaseUrl()}/auth/login`, {
     method: "POST",
@@ -322,7 +355,7 @@ export async function signIn(email: string, password: string): Promise<TokenPair
     body: JSON.stringify({ email, password }),
   });
   if (!response.ok) {
-    throw new ApiError(response.status, response.status === 401 ? "Incorrect email or password" : "Sign-in failed");
+    throw new ApiError(response.status, response.status === 401 ? SIGN_IN_REFUSAL : "Sign-in failed");
   }
   const tokens = (await response.json()) as TokenPairDto;
   storeToken(tokens.accessToken);

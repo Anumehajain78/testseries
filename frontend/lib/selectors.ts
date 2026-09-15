@@ -5,6 +5,7 @@ import type {
   ExamSession,
   Lab,
   Student,
+  Test,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -136,4 +137,37 @@ export function filterAuditEvents(events: AuditEvent[], filter: AuditFilter): Au
     default:
       return events;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Who is in a hall right now
+// ---------------------------------------------------------------------------
+
+/**
+ * The examination this candidate is part-way through, if any.
+ *
+ * Resetting a password ends every session the candidate has, so before that is
+ * confirmed the exam cell needs to know whether one of those sessions is a
+ * paper being written at this moment. Without this the warning can only be
+ * hypothetical, and a hypothetical warning on a screen used every morning gets
+ * read past.
+ *
+ * "Ready" counts as well as "in-progress": a candidate who has checked in at a
+ * workstation and is waiting for the invigilator to start is just as stuck
+ * afterwards, and has no password slip to get back in with. A submitted or
+ * terminated session has nothing left to lose.
+ */
+export function examInProgressFor(
+  studentId: string,
+  sessions: ExamSession[],
+  tests: Test[],
+): Test | undefined {
+  const live = new Map(tests.filter((test) => test.status === "live").map((test) => [test.id, test]));
+  const seated = sessions.find(
+    (session) =>
+      session.studentId === studentId &&
+      (session.examStatus === "ready" || session.examStatus === "in-progress") &&
+      live.has(session.testId),
+  );
+  return seated && live.get(seated.testId);
 }
