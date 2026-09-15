@@ -65,6 +65,7 @@ Quick jobs. Nothing here blocks a demo, but the first one would bite you in a re
 | **Works** | **Run health check.** Reads what each workstation last reported and says, lab by lab, how many are online, how many have gone quiet, and how many have never reported at all. No button on the screens is fake any more. |
 | **Works** | **Coding questions.** Candidates write a Python program; the server runs it against test cases and marks it a minute or so after they submit. Teachers set the examples candidates can see and the hidden cases they cannot. |
 | **Works** | **Fixing a wrong test case.** If a coding question's expected answer was wrong, a teacher can correct it after the exam and everyone is re-marked against the corrected version. It asks for a reason and puts it on the record, because it changes marks people may already have seen. |
+| **Works** | **Passwords can be changed and reset.** Anyone who knows their password can change it. A candidate who has lost theirs is given a new one by the exam cell, shown once. And if the exam cell themselves are locked out, one command on the server lets them back in. |
 | **Works** | **Put it on the college network.** One command — `./deploy/lan-server.sh` — works out this machine's address, sets up its secrets, and starts everything so lab computers can reach it by typing that address. |
 
 **One thing to know about running it for real:** start the server with several
@@ -82,6 +83,10 @@ failures; with eight, all 200 got in, the slowest in about three seconds.
 **One thing to know about the health check:** the server cannot ring a computer — computers report in, and the server remembers when each one last did. So the check reads those reports rather than pinging anything, and the screen says so. A machine nobody has set up yet is listed separately from one that was working and stopped, because those need different people.
 
 **One thing to know about who may add students:** only the exam cell administrator can add, edit or import candidates. Teachers can see the list but not change it. Before, a teacher was blocked from pasting a roster but could still add the same people one form at a time — the buttons and the server now agree.
+
+**One thing to know about resetting a password:** it signs that person out everywhere, on every device. That is the point — a password is changed because the old one is no longer trusted, so anything it opened has to close with it. It also means resetting a candidate who is sitting an exam right now will throw them out of it, so the screen warns you before you do. Ordinary signing out is different, and still only ends the one device.
+
+**Why there is no "forgot password" email:** the system sends no email, a shared lab has no private inbox to send one to, and a candidate showing their college card to the exam cell is a better check than a link anyone nearby could read over their shoulder.
 
 **One thing to know about logins:** renewing a login now cancels the old renewal token, so a stolen one stops working the moment the real user renews. Two devices stay separate — renewing on one does not sign the other out. Signing out now really ends the session: the old renewal token stops working the moment you press it, not whenever it happens to expire.
 
@@ -108,6 +113,8 @@ One left, and it is a machine with the right software on it rather than more wor
 ## What to do next
 
 1. **Install the build tools and compile the desktop window.** Everything else about the lab client is done and checked against a real server; the window is the piece nobody has ever built. `desktop/README.md` has the command.
+2. **Put a certificate in front of it before real examinations.** Passwords cross the network in clear text at the moment. On a wired college LAN that is a modest risk rather than an urgent one, but it is not nothing, and it is about a day's work.
+
 **Honest about the lock down:** the desktop app keeps the exam fullscreen, blocks the developer tools, and reports attempts to close it. It does **not** stop Alt+Tab, Ctrl+Alt+Del, killing the program, a phone on the desk, or a second screen. No software on the machine can. Invigilators still matter.
 
 ---
