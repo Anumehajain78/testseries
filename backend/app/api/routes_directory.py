@@ -38,6 +38,7 @@ from app.schemas.directory import (
     ImportSummary,
     LabOut,
     NewStudent,
+    PasswordReset,
     RosterImportRequest,
     StudentCreate,
     StudentOut,
@@ -329,10 +330,10 @@ def update_student(
 
 @directory_router.post(
     "/students/{student_id}/password",
-    response_model=NewStudent,
+    response_model=PasswordReset,
     operation_id="resetStudentPassword",
 )
-def reset_student_password(student_id: UUID, db: DbSession, _: Admin) -> NewStudent:
+def reset_student_password(student_id: UUID, db: DbSession, _: Admin) -> PasswordReset:
     """Give a candidate a new password, shown exactly once.
 
     The exam-morning fix: somebody arrives without their slip and cannot sit

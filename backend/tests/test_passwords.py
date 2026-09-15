@@ -158,10 +158,19 @@ class TestTheExamCellResettingACandidate:
         """If the reset is happening because somebody else knew the password,
         leaving their session open makes the reset pointless."""
         bearer(candidate["email"], candidate["password"])
-        assert live_sessions(candidate["id"]) == 1
+        bearer(candidate["email"], candidate["password"])
+        assert live_sessions(candidate["id"]) == 2
 
-        client.post(f"{API}/students/{candidate['id']}/password", headers=admin)
+        response = client.post(f"{API}/students/{candidate['id']}/password", headers=admin)
         assert live_sessions(candidate["id"]) == 0
+        # Reported, not just done: whoever is at the counter wants to know they
+        # have just ejected two live sign-ins, which is either what they meant
+        # or a sign they picked the wrong row.
+        assert response.json()["sessionsEnded"] == 2
+
+    def test_resetting_a_candidate_who_was_not_signed_in_says_so(self, admin, candidate):
+        response = client.post(f"{API}/students/{candidate['id']}/password", headers=admin)
+        assert response.json()["sessionsEnded"] == 0
 
     def test_it_is_shown_once_and_not_stored_in_the_clear(self, admin, candidate):
         """The same contract as adding a candidate: readable at this moment

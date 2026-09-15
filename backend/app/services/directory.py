@@ -27,6 +27,7 @@ from app.schemas.directory import (
     ImportOutcome,
     ImportSummary,
     NewStudent,
+    PasswordReset,
     StudentCreate,
     StudentOut,
     StudentUpdate,
@@ -240,7 +241,7 @@ def change_own_password(db: Session, user_id: UUID, current: str, replacement: s
     return ended
 
 
-def reset_student_password(db: Session, student_id: UUID) -> NewStudent:
+def reset_student_password(db: Session, student_id: UUID) -> PasswordReset:
     """Give a candidate a new password, because they have lost the old one.
 
     This is the exam-morning fix: somebody arrives without their slip and
@@ -261,9 +262,14 @@ def reset_student_password(db: Session, student_id: UUID) -> NewStudent:
 
     password = _password()
     user.password_hash = hash_secret(password)
-    _revoke_every_session(db, student_id)
+    ended = _revoke_every_session(db, student_id)
     db.commit()
 
-    # Same shape as adding a candidate, because it is the same moment: a
-    # password readable exactly once, and gone as soon as the screen closes.
-    return NewStudent(student=_to_out(student, user), temporary_password=password)
+    # Same moment as adding a candidate — a password readable once and gone as
+    # soon as the screen closes — plus the count, because whoever is doing this
+    # at a counter wants to know if they have just ejected four live sign-ins.
+    return PasswordReset(
+        student=_to_out(student, user),
+        temporary_password=password,
+        sessions_ended=ended,
+    )

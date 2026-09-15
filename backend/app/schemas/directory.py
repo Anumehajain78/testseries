@@ -94,6 +94,28 @@ class NewStudent(Schema):
     temporary_password: str = Field(alias="temporaryPassword")
 
 
+class PasswordReset(Schema):
+    """A candidate's replacement password, with the one look at it.
+
+    Shaped like :class:`NewStudent` because it is the same moment — a password
+    readable now and never again — but a separate model, because this candidate
+    was not just created and a schema that says otherwise misleads whoever
+    reads it next.
+
+    ``sessions_ended`` is the difference that matters at a counter. Somebody
+    resetting a password wants to know whether they have just ejected four
+    live sign-ins, which is either exactly what they intended or a sign they
+    picked the wrong row.
+    """
+
+    student: StudentOut
+    temporary_password: str = Field(alias="temporaryPassword")
+    sessions_ended: int = Field(
+        alias="sessionsEnded",
+        description="Sign-ins this reset revoked, on every device the candidate had.",
+    )
+
+
 class ImportOutcome(Schema):
     """A row that could not be taken, and why."""
 

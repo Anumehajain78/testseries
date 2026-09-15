@@ -2017,6 +2017,30 @@ export interface components {
             sessionsEnded: number;
         };
         /**
+         * PasswordReset
+         * @description A candidate's replacement password, with the one look at it.
+         *
+         *     Shaped like :class:`NewStudent` because it is the same moment — a password
+         *     readable now and never again — but a separate model, because this candidate
+         *     was not just created and a schema that says otherwise misleads whoever
+         *     reads it next.
+         *
+         *     ``sessions_ended`` is the difference that matters at a counter. Somebody
+         *     resetting a password wants to know whether they have just ejected four
+         *     live sign-ins, which is either exactly what they intended or a sign they
+         *     picked the wrong row.
+         */
+        PasswordReset: {
+            /**
+             * Sessionsended
+             * @description Sign-ins this reset revoked, on every device the candidate had.
+             */
+            sessionsEnded: number;
+            student: components["schemas"]["StudentOut"];
+            /** Temporarypassword */
+            temporaryPassword: string;
+        };
+        /**
          * Principal
          * @description Whoever is making the current request.
          *
@@ -4359,7 +4383,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NewStudent"];
+                    "application/json": components["schemas"]["PasswordReset"];
                 };
             };
             /** @description Validation Error */
