@@ -24,6 +24,8 @@ from app.schemas.auth import (
     MachineEnrolRequest,
     MachineToken,
     MachineTokenRequest,
+    PasswordChangeRequest,
+    PasswordChanged,
     Principal,
     RefreshRequest,
     TokenPair,
@@ -41,7 +43,7 @@ from app.schemas.directory import (
     StudentOut,
     StudentUpdate,
 )
-from app.schemas.enums import AuditCategory, AuditSeverity
+from app.schemas.enums import AuditCategory, AuditSeverity, SubjectType
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 directory_router = APIRouter(tags=["directory"])
@@ -198,6 +200,34 @@ def _tokens_for(db: DbSession, user: User, *, session_id: UUID, now: datetime) -
     )
 
 
+@auth_router.post("/password", response_model=PasswordChanged, operation_id="changePassword")
+def change_password(
+    payload: PasswordChangeRequest, db: DbSession, principal: CurrentPrincipal
+) -> PasswordChanged:
+    """Change your own password.
+
+    Every sign-in this account has is ended, on every device including the one
+    making the request. A password changes because the old one is no longer
+    trusted, and sessions it opened must not outlive it.
+
+    Machines have secrets, not passwords, and re-enrol to get a new one — so
+    this is for people only.
+    """
+    if principal.subject_type is not SubjectType.USER:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "A workstation changes its credential by enrolling again.",
+        )
+
+    ended = directory.change_own_password(
+        db,
+        UUID(principal.subject_id),
+        payload.current_password,
+        payload.new_password,
+    )
+    return PasswordChanged(sessions_ended=ended)
+
+
 @auth_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, operation_id="logout")
 def logout(db: DbSession, payload: RefreshRequest | None = None) -> None:
     """End one sign-in.
@@ -295,6 +325,27 @@ def update_student(
 ) -> StudentOut:
     """Edit a candidate, including blocking them from signing in."""
     return directory.update_student(db, student_id, payload)
+
+
+@directory_router.post(
+    "/students/{student_id}/password",
+    response_model=NewStudent,
+    operation_id="resetStudentPassword",
+)
+def reset_student_password(student_id: UUID, db: DbSession, _: Admin) -> NewStudent:
+    """Give a candidate a new password, shown exactly once.
+
+    The exam-morning fix: somebody arrives without their slip and cannot sit
+    the paper. There is no self-service reset — the platform sends no email,
+    and a candidate showing their college card to the exam cell is a stronger
+    check than a link in a mailbox that anyone in a lab could read over their
+    shoulder.
+
+    Ends every session the candidate had. If the reset is happening because
+    somebody else knew the password, leaving their session open would make it
+    pointless.
+    """
+    return directory.reset_student_password(db, student_id)
 
 
 @directory_router.post(

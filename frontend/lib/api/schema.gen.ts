@@ -140,6 +140,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description Change your own password.
+         *
+         *     Every sign-in this account has is ended, on every device including the one
+         *     making the request. A password changes because the old one is no longer
+         *     trusted, and sessions it opened must not outlive it.
+         *
+         *     Machines have secrets, not passwords, and re-enrol to get a new one — so
+         *     this is for people only.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/refresh": {
         parameters: {
             query?: never;
@@ -920,6 +947,36 @@ export interface paths {
          * @description Edit a candidate, including blocking them from signing in.
          */
         patch: operations["updateStudent"];
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Student Password
+         * @description Give a candidate a new password, shown exactly once.
+         *
+         *     The exam-morning fix: somebody arrives without their slip and cannot sit
+         *     the paper. There is no self-service reset — the platform sends no email,
+         *     and a candidate showing their college card to the exam cell is a stronger
+         *     check than a link in a mailbox that anyone in a lab could read over their
+         *     shoulder.
+         *
+         *     Ends every session the candidate had. If the reset is happening because
+         *     somebody else knew the password, leaving their session open would make it
+         *     pointless.
+         */
+        post: operations["resetStudentPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/health": {
@@ -1933,6 +1990,31 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /**
+         * PasswordChangeRequest
+         * @description Changing your own password.
+         *
+         *     The current one is required. Being signed in is not proof that the person
+         *     at the keyboard is the account holder — on a shared lab machine it is
+         *     frequently proof of the opposite.
+         */
+        PasswordChangeRequest: {
+            /** Currentpassword */
+            currentPassword: string;
+            /** Newpassword */
+            newPassword: string;
+        };
+        /**
+         * PasswordChanged
+         * @description What the change did, beyond succeeding.
+         */
+        PasswordChanged: {
+            /**
+             * Sessionsended
+             * @description Sign-ins revoked by the change, on every device including this one.
+             */
+            sessionsEnded: number;
         };
         /**
          * Principal
@@ -2964,6 +3046,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Principal"];
+                };
+            };
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordChanged"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4214,6 +4329,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StudentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resetStudentPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewStudent"];
                 };
             };
             /** @description Validation Error */

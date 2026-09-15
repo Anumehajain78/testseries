@@ -2008,6 +2008,44 @@
         "title": "Page[StudentOut]",
         "type": "object"
       },
+      "PasswordChangeRequest": {
+        "description": "Changing your own password.\n\nThe current one is required. Being signed in is not proof that the person\nat the keyboard is the account holder \u2014 on a shared lab machine it is\nfrequently proof of the opposite.",
+        "properties": {
+          "currentPassword": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Currentpassword",
+            "type": "string"
+          },
+          "newPassword": {
+            "maxLength": 200,
+            "minLength": 8,
+            "title": "Newpassword",
+            "type": "string"
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "title": "PasswordChangeRequest",
+        "type": "object"
+      },
+      "PasswordChanged": {
+        "description": "What the change did, beyond succeeding.",
+        "properties": {
+          "sessionsEnded": {
+            "description": "Sign-ins revoked by the change, on every device including this one.",
+            "title": "Sessionsended",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sessionsEnded"
+        ],
+        "title": "PasswordChanged",
+        "type": "object"
+      },
       "Principal": {
         "description": "Whoever is making the current request.\n\n``subject_type`` is what lets one dependency guard both humans and\nmachines: heartbeat and event endpoints accept a machine subject, and\nnothing else does.",
         "properties": {
@@ -4149,6 +4187,53 @@
         ]
       }
     },
+    "/api/v1/auth/password": {
+      "post": {
+        "description": "Change your own password.\n\nEvery sign-in this account has is ended, on every device including the one\nmaking the request. A password changes because the old one is no longer\ntrusted, and sessions it opened must not outlive it.\n\nMachines have secrets, not passwords, and re-enrol to get a new one \u2014 so\nthis is for people only.",
+        "operationId": "changePassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/refresh": {
       "post": {
         "description": "Exchange a refresh token for a fresh pair.\n\nThis exists so nobody is signed out during an examination. Access tokens\nare deliberately short-lived; without renewal an invigilator would be\nejected part-way through a ninety-minute paper, which is a worse failure\nthan the one short lifetimes are guarding against.\n\nRenewal is single-use. The presented token is consumed as the replacement\nis minted, so a copy taken off the wire is worth one renewal at most, and\nnothing at all once the real client has renewed. The replacement stays\ninside the same session id, which is why this does not sign the same person\nout of their other machine \u2014 the failure that sank the previous attempt.",
@@ -6264,6 +6349,55 @@
           }
         ],
         "summary": "Update Student",
+        "tags": [
+          "directory"
+        ]
+      }
+    },
+    "/api/v1/students/{student_id}/password": {
+      "post": {
+        "description": "Give a candidate a new password, shown exactly once.\n\nThe exam-morning fix: somebody arrives without their slip and cannot sit\nthe paper. There is no self-service reset \u2014 the platform sends no email,\nand a candidate showing their college card to the exam cell is a stronger\ncheck than a link in a mailbox that anyone in a lab could read over their\nshoulder.\n\nEnds every session the candidate had. If the reset is happening because\nsomebody else knew the password, leaving their session open would make it\npointless.",
+        "operationId": "resetStudentPassword",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "student_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Student Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewStudent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reset Student Password",
         "tags": [
           "directory"
         ]

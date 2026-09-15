@@ -18,11 +18,11 @@ import string
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_secret
-from app.db.models import Student, User
+from app.core.security import hash_secret, verify_secret
+from app.db.models import RefreshToken, Student, User
 from app.schemas.directory import (
     ImportOutcome,
     ImportSummary,
@@ -32,6 +32,7 @@ from app.schemas.directory import (
     StudentUpdate,
 )
 from app.schemas.enums import Role, StudentStatus
+from app.utils.clock import utcnow
 
 #: Readable but not guessable. Ambiguous characters are left out because these
 #: get written on slips and read aloud across a lab.
@@ -182,3 +183,87 @@ def _readable(exc: Exception) -> str:
     if isinstance(exc, KeyError):
         return f"Missing value for {exc.args[0]}"
     return "Some values in this row are missing or invalid"
+
+
+def _revoke_every_session(db: Session, user_id: UUID) -> int:
+    """End every sign-in this person has, on every device.
+
+    Deliberately not the per-session revocation that signing out uses. A
+    password changes because the old one is no longer trusted — lost, shared,
+    or taken — and leaving the sessions it opened alive would defeat the whole
+    act. Somebody holding the old password keeps their seat until the token
+    happens to expire.
+
+    Access tokens are stateless and live for half an hour, so there is a window
+    where an already-issued one still works. Closing it would mean a database
+    lookup on every request for the life of the system, which is a real cost
+    paid every second against a risk measured in minutes. The refresh tokens
+    are what turn thirty minutes into twelve hours, and those are gone.
+    """
+    return db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.consumed_at.is_(None))
+        .values(consumed_at=utcnow())
+    ).rowcount
+
+
+def change_own_password(db: Session, user_id: UUID, current: str, replacement: str) -> int:
+    """Change a password, knowing the one being replaced.
+
+    The current password is required and checked even though the caller is
+    already authenticated. A signed-in session is not proof that the person at
+    the keyboard is the account holder — on a lab machine it is frequently
+    proof of the opposite, because the previous candidate walked away without
+    signing out.
+
+    Returns how many sign-ins were ended, so the screen can say so.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found")
+
+    if not verify_secret(current, user.password_hash):
+        # Deliberately the same wording the sign-in screen uses. Confirming
+        # that the *new* password was fine but the old one was wrong tells an
+        # attacker at an unattended machine which half they got right.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect password")
+
+    if current == replacement:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "That is the password you are already using.",
+        )
+
+    user.password_hash = hash_secret(replacement)
+    ended = _revoke_every_session(db, user_id)
+    db.commit()
+    return ended
+
+
+def reset_student_password(db: Session, student_id: UUID) -> NewStudent:
+    """Give a candidate a new password, because they have lost the old one.
+
+    This is the exam-morning fix: somebody arrives without their slip and
+    cannot sit the paper. There is no self-service reset by design — the
+    platform sends no email, a lab has no private inbox to send one to, and a
+    candidate proving who they are to the exam cell with their college card is
+    a stronger check than a link in a mailbox anyone in the room could be
+    reading over their shoulder.
+
+    Every session the candidate had is ended. If the reset is happening because
+    somebody else knew the password, leaving their session open would make the
+    reset pointless.
+    """
+    student = db.get(Student, student_id)
+    user = db.get(User, student_id)
+    if student is None or user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Candidate not found")
+
+    password = _password()
+    user.password_hash = hash_secret(password)
+    _revoke_every_session(db, student_id)
+    db.commit()
+
+    # Same shape as adding a candidate, because it is the same moment: a
+    # password readable exactly once, and gone as soon as the screen closes.
+    return NewStudent(student=_to_out(student, user), temporary_password=password)

@@ -81,3 +81,27 @@ class Principal(Schema):
     subject_id: str = Field(alias="subjectId")
     role: Role | None = None
     server_time: datetime = Field(alias="serverTime")
+
+
+class PasswordChangeRequest(Schema):
+    """Changing your own password.
+
+    The current one is required. Being signed in is not proof that the person
+    at the keyboard is the account holder — on a shared lab machine it is
+    frequently proof of the opposite.
+    """
+
+    current_password: str = Field(alias="currentPassword", min_length=1, max_length=200)
+    #: Long enough to be worth having. Not longer, because a candidate types
+    #: this at a workstation with an invigilator waiting, and a rule that
+    #: produces a password nobody can remember produces one written on a hand.
+    new_password: str = Field(alias="newPassword", min_length=8, max_length=200)
+
+
+class PasswordChanged(Schema):
+    """What the change did, beyond succeeding."""
+
+    sessions_ended: int = Field(
+        alias="sessionsEnded",
+        description="Sign-ins revoked by the change, on every device including this one.",
+    )
